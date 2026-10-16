@@ -30,6 +30,7 @@ import traceback
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from func.bmc_event_test_base import BmcEventTestBase
+from func.redfish_event_compat import subscription_event_types
 
 from redfish_sdk import RedfishClient, RedfishException
 
@@ -76,11 +77,16 @@ class Event006DeleteSubscription(BmcEventTestBase):
             self.log.info(f"  创建前订阅数：{count_before}")
 
             # 前置：SDK subscribe() 创建测试订阅（v1.1.1 原生支持 http_headers）
+            # EventTypes 决策（issue/9）：优先取 EventTypesForSubscription 与
+            # ["Alert"] 的交集，交集为空传 None（SDK 用厂商默认），
+            # 避免硬编码 ["Alert"] 在不支持该类型的 BMC 上创建失败
+            event_types = subscription_event_types(self.client)
+            self.log.info(f"  订阅 EventTypes 决策：{event_types!r}（None=厂商默认）")
             new_uri = None
             try:
                 sub_obj = self.client.subscribe(
                     self.test_sub_dest,
-                    ["Alert"],
+                    event_types,
                     self.test_sub_context,
                     http_headers={
                         "Content-Type":  "Application/json",
@@ -101,7 +107,7 @@ class Event006DeleteSubscription(BmcEventTestBase):
                 try:
                     sub_obj = self.client.subscribe(
                         self.test_sub_dest,
-                        ["Alert"],
+                        event_types,
                         self.test_sub_context,
                     )
                     if hasattr(sub_obj, "odata_id") and sub_obj.odata_id:
