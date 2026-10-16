@@ -6,21 +6,22 @@ Usage: python3 bmc/managers_015_power_restore_policy_test.py -i <bmc_ip> -u <use
 Update:
 2026/05/09: 新增，通电开机策略（PowerRestorePolicy）设置与验证
 2026/10/16: SDK 1.3.0 适配 - PATCH URI 改取自 System 资源 @odata.id（issue/8）
-2026/10/16: 去厂商化 - OEM PowerOnStrategy 适配 SDK 未封装，保留但运行时 WARNING 提示（issue/8）
 
 数据来源：
-  标准 Redfish：System 资源 → PowerRestorePolicy（标准字段）
-  OEM 降级：System 资源 → Oem.{vendor}.PowerOnStrategy（厂商定制字段，SDK 未封装）
+  标准 Redfish：GET /redfish/v1/Systems/1 → PowerRestorePolicy（标准字段，ZTE 实测为 None）
+  ZTE OEM：GET /redfish/v1/Systems/1 → Oem.Public.PowerOnStrategy（ZTE 定制字段，实测有值）
 
 测试策略（优先标准，OEM 降级）：
-  1. 读取当前通电策略（优先标准 PowerRestorePolicy，回落到 OEM PowerOnStrategy）
+  1. 读取当前通电策略（优先标准 PowerRestorePolicy，ZTE 回落到 OEM PowerOnStrategy）
   2. 【默认值校验】期望默认为 RestorePreviousState / LastState（断电前状态恢复）
   3. 尝试 PATCH 切换策略：AlwaysOn → 读回验证 → 恢复原始值
-     - 标准 PATCH 失败 → 尝试 OEM PATCH（SDK 未封装，记 WARNING）
+     - 标准 PATCH 失败 → 尝试 OEM PATCH
      - 两者均失败 → 记录 WARNING，只读验证仍可 PASS
 
-OEM 枚举（经探测确认，厂商无关命名）：
-  RestorePreviousState（断电恢复）/ TurnOn（始终开）/ StayOff（始终关）
+ZTE 实测：
+  - PowerRestorePolicy = None（标准字段，SDK 未映射）
+  - Oem.Public.PowerOnStrategy = RestorePreviousState（ZTE 自定义枚举）
+  - ZTE 已确认枚举：RestorePreviousState（断电恢复）/ TurnOn（始终开）/ StayOff（始终关）
 
 CSV：单行摘要
 JSON detail.cycle：各检查项；summary：整体 PASS/FAIL
@@ -38,30 +39,25 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException  # noqa: F401
 
-# OEM PowerOnStrategy 枚举值（对应标准值的 OEM 命名，通过探测确认）
-# 标准值      → OEM 值
+# ZTE OEM 枚举值（对应标准值的 ZTE 命名，通过探测确认）
+# 标准值      → ZTE OEM 值
 # LastState   → RestorePreviousState（默认值）
 # AlwaysOn    → TurnOn
 # AlwaysOff   → StayOff
-OEM_ENUM_MAP = {
+ZTE_ENUM_MAP = {
     "LastState":  "RestorePreviousState",
     "AlwaysOn":   "TurnOn",
     "AlwaysOff":  "StayOff",
 }
 
-# 期望的默认策略（含 OEM 和 Redfish 标准两种说法）
+# 期望的默认策略（含 ZTE OEM 和 Redfish 标准两种说法）
 EXPECTED_DEFAULTS = {"RestorePreviousState", "LastState"}
 
-# 测试用策略（切换到 AlwaysOn 验证写操作；用 OEM 枚举）
-TEST_POLICY_OEM       = "TurnOn"
+# 测试用策略（切换到 AlwaysOn 验证写操作；用 ZTE OEM 枚举）
+TEST_POLICY_ZTE       = "TurnOn"
 TEST_POLICY_STANDARD  = "AlwaysOn"
-RESTORE_POLICY_OEM    = "RestorePreviousState"
+RESTORE_POLICY_ZTE    = "RestorePreviousState"
 RESTORE_POLICY_STANDARD = "LastState"
-
-# SDK 适配状态：PowerOnStrategy 为厂商 OEM 扩展，SDK 1.3.0 未封装，
-# 本脚本通过 get_raw/patch 直接操作 OEM 字段（运行时 WARNING 提示）
-OEM_NOT_IN_SDK = ("PowerOnStrategy 为厂商 OEM 扩展字段，redfish-python-sdk 1.3.0 未封装，"
-                  "本脚本直接操作 OEM 路径，请推动 SDK 补充适配")
 
 def _get_current_policy(sys_obj) -> tuple:
     """Extract current power-on strategy from a System SDK object.
@@ -92,7 +88,7 @@ class PowerRestorePolicyTest(BmcTestBase):
     def _try_patch(self, test, systems_uri: str, body_standard: dict, body_oem: dict) -> tuple:
         """尝试 PATCH，标准失败则 OEM，返回 (success, method)
 
-        注意：OEM PowerOnStrategy PATCH 成功后 BMC 会短暂重启 Redfish 服务，
+        注意：ZTE OEM PowerOnStrategy PATCH 成功后 BMC 会短暂重启 Redfish 服务，
         可能导致 PATCH 响应 HTTP 501。此处将 501 视为"操作已提交，等待 BMC 就绪"而非失败。
         """
         # 尝试标准
@@ -102,8 +98,7 @@ class PowerRestorePolicyTest(BmcTestBase):
         except Exception as e:
             test.print_log("WARNING", f"标准 PATCH 失败：{str(e)[:80]}，尝试 OEM...")
 
-        # 尝试 OEM（SDK 未封装，WARNING 提示；允许 501 — BMC 重启 Redfish 服务导致）
-        test.print_log("WARNING", f"[SDK-GAP] {OEM_NOT_IN_SDK}")
+        # 尝试 OEM（允许 501 — BMC 重启 Redfish 服务导致）
         try:
             self.client.patch(systems_uri, body_oem)
             return True, "oem"
@@ -168,7 +163,7 @@ class PowerRestorePolicyTest(BmcTestBase):
                 test,
                 systems_uri,
                 body_standard={"PowerRestorePolicy": TEST_POLICY_STANDARD},
-                body_oem={"Oem": {"Public": {"PowerOnStrategy": TEST_POLICY_OEM}}},
+                body_oem={"Oem": {"Public": {"PowerOnStrategy": TEST_POLICY_ZTE}}},
             )
 
             if not patch_ok:
@@ -191,7 +186,7 @@ class PowerRestorePolicyTest(BmcTestBase):
                     checks.append(("通电策略 PATCH 写操作", False))
                     raise RuntimeError("读回失败")
                 src2, val2 = _get_current_policy(sys_obj2)
-                expect_after = {TEST_POLICY_OEM, TEST_POLICY_STANDARD}
+                expect_after = {TEST_POLICY_ZTE, TEST_POLICY_STANDARD}
                 write_ok = val2 in expect_after
                 test.print_log(
                     "INFO" if write_ok else "ERROR",
@@ -203,7 +198,7 @@ class PowerRestorePolicyTest(BmcTestBase):
                 # ── 4. 恢复原始值 ────────────────────────────────────────────
                 test.print_log("INFO", "=== 步骤4: 恢复原始通电策略 ===")
                 restore_body_std = {"PowerRestorePolicy": RESTORE_POLICY_STANDARD}
-                restore_body_oem = {"Oem": {"Public": {"PowerOnStrategy": RESTORE_POLICY_OEM}}}
+                restore_body_oem = {"Oem": {"Public": {"PowerOnStrategy": current_policy}}}
                 restore_ok, rm = self._try_patch(test, systems_uri, restore_body_std, restore_body_oem)
                 sys_obj3 = None
                 for attempt in range(4):
