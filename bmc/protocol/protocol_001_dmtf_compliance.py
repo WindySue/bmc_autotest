@@ -118,7 +118,10 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         links = root.get("Links", {}) or {}
 
         def _link(key: str) -> str:
-            return (links.get(key) or {}).get("@odata.id", "")
+            # 集合 URI 优先取 root 顶层服务链接（Systems/Chassis/Managers 等），
+            # Links 中不存在时回落（Links.Sessions 等仅在 Links 中）
+            top = (root.get(key) or {}).get("@odata.id", "")
+            return top or (links.get(key) or {}).get("@odata.id", "")
 
         def _first_member(col_uri: str) -> str:
             """GET 集合，返回第一个成员的 @odata.id"""

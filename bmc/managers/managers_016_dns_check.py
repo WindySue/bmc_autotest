@@ -45,6 +45,8 @@ class Managers016DnsCheck(BmcTestBase):
         checks = []
         dns_info = {}
         final = "FAIL"
+        hostname_config = None
+        dns_ip_config = None
 
         try:
             self.client = RedfishClient(

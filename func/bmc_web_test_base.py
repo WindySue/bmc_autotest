@@ -181,9 +181,9 @@ class BmcWebTestBase:
         -------
         str — 资源 URI；发现失败返回 default（可能为空）
         """
-        # 1. conf 显式配置优先
+        # 1. conf 显式配置优先（conf 仅在子类 _load_extra_config 中赋值，可能不存在）
         if conf_key:
-            configured = (self.conf or {}).get(conf_key, "")
+            configured = (getattr(self, "conf", None) or {}).get(conf_key, "")
             if configured:
                 return configured
 
@@ -201,7 +201,10 @@ class BmcWebTestBase:
         links = root.get("Links", {}) or {}
 
         def _link(k):
-            return (links.get(k) or {}).get("@odata.id", "")
+            # 集合 URI 优先取 root 顶层服务链接（Systems/Chassis/Managers 等），
+            # Links 中不存在时回落（Links.Sessions 等仅在 Links 中）
+            top = (root.get(k) or {}).get("@odata.id", "")
+            return top or (links.get(k) or {}).get("@odata.id", "")
 
         def _first_member(col_uri):
             if not col_uri:

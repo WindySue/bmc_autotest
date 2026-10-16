@@ -8,7 +8,7 @@
         "PassWord": "",
         "TimeoutSec": 10,
         "TestUser": {
-            "UserName": "web_test_u",
+            "UserName": "webtest",
             "Password": "WebTest@2024",
             "RoleId": "Operator"
         }

@@ -72,7 +72,11 @@ class SELLogModifyNegativeCheck(BmcTestBase):
     def _find_sel_log_service(self):
         """优先从 Systems 获取，失败时 fallback 到 Managers。
         返回 (Log对象, source字符串)，Log 对象由 SDK 类型化解析。
+
+        注意：Systems 侧未命中 SEL 时不立即取第一个（可能为 BIOS/Crashdump 等
+        非 SEL 服务），继续到 Managers 侧查找；两侧均未命中 SEL 才取第一个兜底。
         """
+        first_systems_svc = None
         try:
             log_services = self.client.get_system_log_services()
             if log_services:
@@ -81,7 +85,7 @@ class SELLogModifyNegativeCheck(BmcTestBase):
                     svc_id = (svc.id or "").lower()
                     if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
                         return svc, "Systems"
-                return log_services[0], "Systems"
+                first_systems_svc = log_services[0]
         except Exception as e:
             CommonFunction.print_log("WARNING", f"Systems Log Services 不可用：{str(e)}")
 
@@ -94,6 +98,8 @@ class SELLogModifyNegativeCheck(BmcTestBase):
                     svc_id = (svc.id or "").lower()
                     if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
                         return svc, "Managers"
+                if first_systems_svc is not None:
+                    return first_systems_svc, "Systems"
                 return log_services[0], "Managers"
         except Exception as e:
             CommonFunction.print_log("ERROR", f"Managers Log Services 也不可用：{str(e)}")
