@@ -2,9 +2,10 @@
 """
 Author: Fengmian
 Date: 2026/05/11
-Usage: python3 bmc/managers_018_firewall_check.py -i <bmc_ip> -u <username> -p <password>
+Usage: python3 bmc/managers_017_vnc_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
-2026/05/11: 新增，BMC 防火墙规则配置检查，验证 ActiveStrategy 和 Rules
+2026/05/11: 新增，BMC VNC 服务配置检查，验证 SessionMode/SessionTimeoutMinutes/SSLEncryptionEnabled/MaximumNumberOfSessions
+2026/10/16: SDK 1.3.0 适配 - 改用 get_vnc_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,24 +20,24 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-FIREWALL_RULES_URI = "/redfish/v1/Managers/1/SecurityService/FirewallRules"
+VALID_SESSION_MODES = ["Share", "Private"]
 
-VALID_STRATEGIES = ["Accept", "Drop"]
+class Managers017VncCheck(BmcTestBase):
+    """BMC VNC 服务配置检查
 
-class Managers018FirewallCheck(BmcTestBase):
-    """BMC 防火墙规则配置检查
-
-    用例编号：Redfish_Managers_018
+    用例编号：Redfish_Managers_017
     测试内容：
-    - GET /redfish/v1/Managers/1/SecurityService/FirewallRules 接口可达
-    - ActiveStrategy 存在且在 ["Accept", "Drop"] 中
-    - Rules 存在（list，可为空）
+    - GET /redfish/v1/Managers/1/VncService 接口可达
+    - SessionMode 存在且在 ["Share", "Private"] 中
+    - SessionTimeoutMinutes 存在且 >0
+    - SSLEncryptionEnabled 存在且为 bool
+    - MaximumNumberOfSessions 存在且 >=1
     """
 
     def __init__(self, case: str):
         super().__init__(
             case=case,
-            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_018_firewall_check.json"),
+            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_017_vnc_check.json"),
         )
     def run_test(self):
         test = CommonFunction()
@@ -44,7 +45,7 @@ class Managers018FirewallCheck(BmcTestBase):
         test.print_log("INFO", "测试开始")
 
         checks = []
-        firewall_info = {}
+        vnc_info = {}
         final = "FAIL"
 
         try:
@@ -54,37 +55,46 @@ class Managers018FirewallCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET FirewallRules 接口
-            test.print_log("INFO", "=== 步骤1: 查询 FirewallRules 配置 ===")
-            # [SDK-GAP] get_raw(FIREWALL_RULES_URI) 获取 FirewallRules 配置：
-            #   SecurityService/FirewallRules 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SecurityService/FirewallRules')："
-                           "FirewallRules 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            fw_data = self.client.get_raw(FIREWALL_RULES_URI)
-            test.print_log("INFO", "FirewallRules 接口查询成功")
-            checks.append(("FirewallRules 接口查询成功", True))
+            # 1. GET VncService 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            test.print_log("INFO", "=== 步骤1: 查询 VncService 配置 ===")
+            vnc_data = self.client.get_vnc_service()
+            test.print_log("INFO", "VncService 接口查询成功")
+            checks.append(("VncService 接口查询成功", True))
 
-            # 2. ActiveStrategy 存在且在 ["Accept", "Drop"] 中
-            active_strategy = fw_data.get("ActiveStrategy")
-            strategy_ok = active_strategy in VALID_STRATEGIES
+            # 2. SessionMode 存在且在 ["Share", "Private"] 中（OEM 扩展字段，经 extra 保留可属性访问）
+            session_mode = getattr(vnc_data, "SessionMode", None)
+            session_mode_ok = session_mode in VALID_SESSION_MODES
             test.print_log("INFO",
-                f"ActiveStrategy: {'✓' if strategy_ok else '✗'} {active_strategy!r} "
-                f"（期望：{VALID_STRATEGIES}）")
-            checks.append(("ActiveStrategy 存在且在有效枚举中", strategy_ok))
+                f"SessionMode: {'✓' if session_mode_ok else '✗'} {session_mode!r} "
+                f"（期望：{VALID_SESSION_MODES}）")
+            checks.append(("SessionMode 存在且在有效枚举中", session_mode_ok))
 
-            # 3. Rules 存在（list，可为空）
-            rules = fw_data.get("Rules")
-            rules_ok = isinstance(rules, list)
-            rules_count = len(rules) if rules_ok else 0
+            # 3. SessionTimeoutMinutes 存在且 >0（OEM 扩展字段）
+            session_timeout = getattr(vnc_data, "SessionTimeoutMinutes", None)
+            timeout_ok = isinstance(session_timeout, (int, float)) and session_timeout > 0
             test.print_log("INFO",
-                f"Rules: {'✓ 存在（list）' if rules_ok else '✗ 缺失或类型不对'} "
-                f"（数量：{rules_count}）")
-            checks.append(("Rules 存在（list）", rules_ok))
+                f"SessionTimeoutMinutes: {'✓' if timeout_ok else '✗'} {session_timeout!r}")
+            checks.append(("SessionTimeoutMinutes 存在且 >0", timeout_ok))
+
+            # 4. SSLEncryptionEnabled 存在且为 bool（OEM 扩展字段）
+            ssl_enabled = getattr(vnc_data, "SSLEncryptionEnabled", None)
+            ssl_ok = isinstance(ssl_enabled, bool)
+            test.print_log("INFO",
+                f"SSLEncryptionEnabled: {'✓' if ssl_ok else '✗'} {ssl_enabled!r}")
+            checks.append(("SSLEncryptionEnabled 存在且为 bool", ssl_ok))
+
+            # 5. MaximumNumberOfSessions 存在且 >=1（OEM 扩展字段）
+            max_sessions = getattr(vnc_data, "MaximumNumberOfSessions", None)
+            max_ok = isinstance(max_sessions, int) and max_sessions >= 1
+            test.print_log("INFO",
+                f"MaximumNumberOfSessions: {'✓' if max_ok else '✗'} {max_sessions!r}")
+            checks.append(("MaximumNumberOfSessions 存在且 >=1", max_ok))
 
             # 记录详细信息
-            firewall_info["ActiveStrategy"] = active_strategy
-            firewall_info["RulesCount"] = rules_count
-            firewall_info["Rules"] = rules
+            vnc_info["SessionMode"] = session_mode
+            vnc_info["SessionTimeoutMinutes"] = session_timeout
+            vnc_info["SSLEncryptionEnabled"] = ssl_enabled
+            vnc_info["MaximumNumberOfSessions"] = max_sessions
 
             final = "PASS" if all(r for _, r in checks) else "FAIL"
 
@@ -103,7 +113,7 @@ class Managers018FirewallCheck(BmcTestBase):
                     pass
 
         # 结果写入
-        for field_name, field_val in firewall_info.items():
+        for field_name, field_val in vnc_info.items():
             test.add_key_value_to_json(self.result_json_path, "detail.cycle",
                                        value={"metrics": field_name, "value": field_val})
         for label, passed in checks:
@@ -121,7 +131,7 @@ if __name__ == '__main__':
     exit_code = 0
     test_name = None
     try:
-        test_name = Managers018FirewallCheck("Managers018FirewallCheck")
+        test_name = Managers017VncCheck("Managers017VncCheck")
         test_name.run_test()
         if test_name.command_check_result in ["FINISH", "PASS"]:
             exit_code = 0

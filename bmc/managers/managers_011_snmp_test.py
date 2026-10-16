@@ -7,6 +7,7 @@ Update:
 2026/05/08: 新增，BMC SNMP 设置功能测试，验证 SNMP 启用/禁用、Trap 服务器配置及测试事件
 2026/05/08: 修复 - 被测 BMC SNMP PATCH 接口存在 ComplexPwdEnable 格式校验 bug（HTTP 400），
            改为只读结构验证；SubmitTestEvent 同样不可用，跳过
+2026/10/16: SDK 1.3.0 适配 - 改用 get_snmp_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -21,8 +22,15 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SNMP_URI = "/redfish/v1/Managers/1/SnmpService"
-SUBMIT_TEST_EVENT_URI = "/redfish/v1/Managers/1/SnmpService/Actions/SnmpService.SubmitTestEvent"
+# OEM 字段访问哨兵：SDK 模型 extra="allow" 保留响应中的 OEM 原始字段，
+# 未出现的字段 getattr 返回哨兵，语义等价于 dict 的 key 存在性检查
+_MISSING = object()
+
+
+def _has(obj, field: str) -> bool:
+    """检查 SDK 模型实例上是否存在某字段（含 OEM extra 字段）"""
+    return getattr(obj, field, _MISSING) is not _MISSING
+
 
 class Managers011SnmpTest(BmcTestBase):
     """BMC SNMP 设置功能测试
@@ -58,18 +66,15 @@ class Managers011SnmpTest(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. 查询 SNMP 服务配置
-            # [SDK-GAP] get_raw(SNMP_URI) 获取 SnmpService 配置：
-            #   SnmpService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SnmpService')："
-                           "SnmpService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            snmp_data = self.client.get_raw(SNMP_URI)
-            service_enabled = snmp_data.get("SnmpServiceEnable")
-            service_port = snmp_data.get("SnmpServicePort")
-            trap_notif = snmp_data.get("SnmpTrapNotification", {})
-            trap_servers = trap_notif.get("TrapServer", [])
-            snmp_version = snmp_data.get("SnmpV3Enable")
-            actions = snmp_data.get("Actions", {})
+            # 1. 查询 SNMP 服务配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            snmp_data = self.client.get_snmp_service()
+            # SnmpServiceEnable/SnmpServicePort 为 OEM 扩展字段，经 extra 保留可属性访问
+            service_enabled = getattr(snmp_data, "SnmpServiceEnable", None)
+            service_port = getattr(snmp_data, "SnmpServicePort", None)
+            trap_notif = snmp_data.snmp_trap_notification
+            trap_servers = (trap_notif.trap_server if trap_notif else None) or []
+            snmp_version = snmp_data.snmp_v3_enable
+            actions = getattr(snmp_data, "Actions", None) or {}
 
             test.print_log("INFO", f"当前 SNMP: ServiceEnable={service_enabled}, Port={service_port}, "
                            f"V3Enable={snmp_version}, TrapServers={len(trap_servers)}")
@@ -84,7 +89,7 @@ class Managers011SnmpTest(BmcTestBase):
             # 2. 验证必要字段存在
             required_fields = ["SnmpServiceEnable", "SnmpServicePort"]
             for field in required_fields:
-                present = field in snmp_data
+                present = _has(snmp_data, field)
                 test.print_log("INFO", f"  字段 {field}: {'存在' if present else '缺失'}")
                 checks.append((f"字段 {field} 存在", present))
 
@@ -93,16 +98,16 @@ class Managers011SnmpTest(BmcTestBase):
             test.print_log("INFO", f"  SnmpServicePort={service_port} 合法性: {port_valid}")
             checks.append(("SnmpServicePort 为合法端口", port_valid))
 
-            # 4. 验证 TrapServer 条目结构
+            # 4. 验证 TrapServer 条目结构（MemberId/TrapServerAddress/TrapServerPort 为 OEM 字段）
             for srv in trap_servers:
-                mid = srv.get("MemberId", "")
-                addr = srv.get("TrapServerAddress", "")
-                port = srv.get("TrapServerPort", 0)
-                enabled = srv.get("TrapServerEnable", False)
+                mid = getattr(srv, "MemberId", "")
+                addr = getattr(srv, "TrapServerAddress", "") or srv.destination or ""
+                port = getattr(srv, "TrapServerPort", 0) or srv.port or 0
+                enabled = getattr(srv, "TrapServerEnable", False) or srv.enabled or False
                 test.print_log("INFO", f"  TrapServer[{mid}]: Address={addr}, Port={port}, Enabled={enabled}")
             if trap_servers:
                 trap_struct_ok = all(
-                    "MemberId" in s and "TrapServerAddress" in s and "TrapServerPort" in s
+                    _has(s, "MemberId") and _has(s, "TrapServerAddress") and _has(s, "TrapServerPort")
                     for s in trap_servers
                 )
                 checks.append(("TrapServer 条目结构完整", trap_struct_ok))

@@ -3,8 +3,8 @@
 IPMI 带外用户名规则校验（正反向边界）（RDSV_BMC_080a）
 
 正向：4位/16位/全大写/全小写/混合 → 应成功
-反向：17位 → 应失败（ZTE报 Username is too long）
-注意：需求要求4~16位，ZTE实测3位及以下BMC未拦截，记录为WARNING
+反向：17位 → 应失败（报 Username is too long）
+注意：需求要求4~16位，实测3位及以下BMC未拦截，记录为WARNING
 
 Usage: python3 bmc/ipmi_user_003.py -i <bmc_ip> -u <user> -p <pass>
 """

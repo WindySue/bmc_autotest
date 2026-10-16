@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_025_syslog_test.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC Syslog 服务配置查询与测试告警触发测试
+2026/10/16: SDK 1.3.0 适配 - 改用 get_syslog_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 
 测试内容：
   1. 查询 Syslog 服务配置，验证关键字段（ServerIdentitySource/TransmissionProtocol/
@@ -19,7 +20,7 @@ PASS 标准：
   - 若无 Server：查询校验通过即 PASS
 
 注意：
-  SyslogServers PATCH 在 ZTE 存在格式校验 bug，本脚本不做 PATCH 操作。
+  被测固件 SyslogServers PATCH 存在格式校验 bug，本脚本不做 PATCH 操作。
 """
 
 import os
@@ -33,8 +34,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SYSLOG_URI      = "/redfish/v1/Managers/1/SyslogService"
-SYSLOG_TEST_URI = "/redfish/v1/Managers/1/SyslogService/Actions/SyslogService.SubmitTestEvent"
 VALID_PROTOCOLS = ["UDP", "TCP", "TLS"]
 
 class Managers025SyslogTest(BmcTestBase):
@@ -60,17 +59,14 @@ class Managers025SyslogTest(BmcTestBase):
                 host=self.BMC_IP, username=self.USERNAME, password=self.PASSWORD
             )
 
-            # ── 1. 查询 Syslog 服务配置 ───────────────────────────────────
-            # [SDK-GAP] get_raw(SYSLOG_URI) 获取 SyslogService 配置：
-            #   SyslogService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SyslogService')："
-                           "SyslogService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            syslog_data = self.client.get_raw(SYSLOG_URI)
-            identity_src = syslog_data.get("ServerIdentitySource")
-            protocol     = syslog_data.get("TransmissionProtocol")
-            alarm_sev    = syslog_data.get("AlarmSeverity")
-            syslog_svrs  = syslog_data.get("SyslogServers", [])
-            auth_mode    = syslog_data.get("AuthenticateMode")
+            # ── 1. 查询 Syslog 服务配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）──
+            syslog_data = self.client.get_syslog_service()
+            # ServerIdentitySource/AuthenticateMode 为 OEM 扩展字段，经 extra 保留可属性访问
+            identity_src = getattr(syslog_data, "ServerIdentitySource", None)
+            protocol     = syslog_data.transmission_protocol
+            alarm_sev    = syslog_data.alarm_severity
+            syslog_svrs  = syslog_data.syslog_servers or []
+            auth_mode    = getattr(syslog_data, "AuthenticateMode", None)
 
             test.print_log("INFO",
                 f"Syslog 配置：IdentitySource={identity_src}, Protocol={protocol}, "
@@ -100,11 +96,12 @@ class Managers025SyslogTest(BmcTestBase):
                             isinstance(syslog_svrs, list)))
 
             # ── 2. 触发 Syslog 测试告警 ───────────────────────────────────
+            # ServerAddress 为 OEM 字段（SDK SyslogServer 模型为 Address），经 extra 保留
             active_servers = []
             if isinstance(syslog_svrs, list):
                 active_servers = [
                     s for s in syslog_svrs
-                    if isinstance(s, dict) and s.get("ServerAddress", "")
+                    if getattr(s, "ServerAddress", "") or (s.address or "")
                 ]
 
             if not active_servers:
@@ -112,12 +109,21 @@ class Managers025SyslogTest(BmcTestBase):
                     "未配置 SyslogServer 地址，跳过 SubmitTestEvent（无接收端）")
                 detail["syslog_test"] = {"skipped": True, "reason": "no_syslog_server_configured"}
             else:
-                # 对 MemberId=0（第一个）触发测试
-                member_id = active_servers[0].get("MemberId", 0)
+                # 对第一个有效 Server 触发测试
+                # SubmitTestEvent action SDK 未封装，target 从资源 Actions 元数据动态获取
+                first = active_servers[0]
+                member_id = getattr(first, "MemberId", None)
+                if member_id is None:
+                    member_id = first.member_id if first.member_id is not None else 0
+                actions = getattr(syslog_data, "Actions", None) or {}
+                submit_action = actions.get("#SyslogService.SubmitTestEvent", {})
+                submit_target = submit_action.get("target", "") if isinstance(submit_action, dict) else ""
+                if not submit_target:
+                    raise RedfishException("SyslogService 响应中无 #SyslogService.SubmitTestEvent target")
                 test.print_log("INFO",
                     f"对 MemberId={member_id} 发送 Syslog 测试告警...")
                 try:
-                    self.client.post(SYSLOG_TEST_URI, {"MemberId": member_id})
+                    self.client.post(submit_target, {"MemberId": member_id})
                     test.print_log("INFO", "Syslog SubmitTestEvent POST 成功")
                     checks.append(("Syslog 测试告警触发成功", True))
                     detail["syslog_test"] = {"member_id": member_id, "result": "PASS"}

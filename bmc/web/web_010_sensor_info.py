@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web传感器信息查询（Web_010）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_100,110 - 传感器列表及类型覆盖
 
 Usage: python3 -m bmc.web_010_sensor_info -i <bmc_ip> -u <user> -p <pass>
@@ -28,8 +29,8 @@ class WebSensorInfo(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        thermal_uri = self.conf.get('ThermalUri', '/redfish/v1/Chassis/1/Thermal')
-        power_uri   = self.conf.get('PowerUri', '/redfish/v1/Chassis/1/Power')
+        thermal_uri = self._redfish_uri('thermal', conf_key='ThermalUri')
+        power_uri   = self._redfish_uri('power', conf_key='PowerUri')
 
         # Thermal（温度+风扇）
         code, body = client.get(thermal_uri)

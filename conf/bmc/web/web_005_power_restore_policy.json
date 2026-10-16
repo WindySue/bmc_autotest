@@ -7,7 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "SystemUri": "/redfish/v1/Systems/1",
         "ExpectedDefaults": [
             "RestorePreviousState",
             "LastState"

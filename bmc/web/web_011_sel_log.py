@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web SEL日志查询（Web_011）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_137 - SEL日志条目数及字段完整性
 
 查询策略（优先级递减）：
@@ -61,14 +62,15 @@ class WebSelLog(BmcWebTestBase):
 
     def _discover_sel_entries_uri(self, client: 'BmcWebClient') -> str | None:
         """按优先级枚举多个 Redfish 标准 LogServices 根路径，查找 SEL 的 Entries URI。
-        依次搜索：配置路径 → Systems → Chassis（均为规范允许的 SEL 挂载位置）。
+        依次搜索：配置路径 → Managers → Systems → Chassis（均为规范允许的 SEL 挂载位置，
+        URI 由基类 _redfish_uri() 从 ServiceRoot 动态发现）。
         """
-        # 搜索路径优先级列表
-        configured = self.conf.get('LogServicesUri', '/redfish/v1/Managers/1/LogServices')
+        # 搜索路径优先级列表（URI 动态发现，不硬编码）
+        configured = self._redfish_uri('log_services_manager', conf_key='LogServicesUri')
         candidates = [
             configured,
-            '/redfish/v1/Systems/1/LogServices',
-            '/redfish/v1/Chassis/1/LogServices',
+            self._redfish_uri('log_services_system'),
+            self._redfish_uri('log_services_chassis'),
         ]
         # 去重，保持顺序
         seen = set()
@@ -97,11 +99,12 @@ class WebSelLog(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        sel_uri   = self.conf.get('SelUri', '/redfish/v1/Managers/1/LogServices/SEL/Entries')
+        # SelUri 仅在 conf 显式配置时使用，否则走自动发现
+        sel_uri   = self.conf.get('SelUri', '')
         req_fields = self.conf.get('RequiredEntryFields', ['Id', 'EntryType', 'Created'])
 
-        # Step1: 先尝试配置的 URI
-        code, body = client.get(sel_uri)
+        # Step1: 先尝试配置的 URI（未配置则直接自动发现）
+        code, body = client.get(sel_uri) if sel_uri else (404, None)
         if code == 404:
             CommonFunction.print_log('WARNING',
                 f'配置 SelUri={sel_uri} 返回 404，尝试自动发现...')

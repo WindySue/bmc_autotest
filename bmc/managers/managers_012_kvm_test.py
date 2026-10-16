@@ -6,6 +6,7 @@ Usage: python3 bmc/managers_012_kvm_test.py -i <bmc_ip> -u <username> -p <passwo
 Update:
 2026/05/08: 新增，BMC KVM 功能测试，验证 KVM 服务配置查询、Session 参数设置及生效
 2026/05/08: 改善 - 新增 MaximumNumberOfSessions ≥ 2 校验（业务要求支持 2 个及以上 KVM 会话）
+2026/10/16: SDK 1.3.0 适配 - 改用 get_kvm_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,8 +20,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-KVM_URI = "/redfish/v1/Managers/1/KvmService"
 
 TEST_SESSION_TIMEOUT = 60   # 测试用 Session 超时时间（分钟）
 
@@ -55,18 +54,14 @@ class Managers012KvmTest(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. 查询 KVM 服务配置
-            # [SDK-GAP] get_raw(KVM_URI) 获取 KvmService 配置：
-            #   KvmService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/KvmService')："
-                           "KvmService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            kvm_data = self.client.get_raw(KVM_URI)
-            kvm_url = kvm_data.get("KvmUrl", "")
-            max_sessions = kvm_data.get("MaximumNumberOfSessions")
-            active_sessions = kvm_data.get("NumberOfActivatedSessions")
-            session_timeout = kvm_data.get("SessionTimeoutMinutes")
-            encryption_enabled = kvm_data.get("EncryptionEnabled")
-            activated_type = kvm_data.get("ActivatedSessionsType", "")
+            # 1. 查询 KVM 服务配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            kvm_data = self.client.get_kvm_service()
+            kvm_url = kvm_data.kvm_url or ""
+            max_sessions = kvm_data.maximum_number_of_sessions
+            active_sessions = getattr(kvm_data, "NumberOfActivatedSessions", None)
+            session_timeout = getattr(kvm_data, "SessionTimeoutMinutes", None)
+            encryption_enabled = getattr(kvm_data, "EncryptionEnabled", None)
+            activated_type = getattr(kvm_data, "ActivatedSessionsType", "") or ""
 
             test.print_log("INFO", f"KVM 配置: KvmUrl={kvm_url}, MaxSessions={max_sessions}, "
                            f"ActiveSessions={active_sessions}, Timeout={session_timeout}min, "
@@ -99,11 +94,10 @@ class Managers012KvmTest(BmcTestBase):
             original_timeout = session_timeout
             test.print_log("INFO", f"修改 SessionTimeoutMinutes: {original_timeout} → {TEST_SESSION_TIMEOUT}")
             try:
-                self.client.patch(KVM_URI, {"SessionTimeoutMinutes": TEST_SESSION_TIMEOUT})
+                self.client.patch(kvm_data.odata_id, {"SessionTimeoutMinutes": TEST_SESSION_TIMEOUT})
                 time.sleep(2)
-                # [SDK-GAP] 同上，KvmService OEM 路径
-                kvm_data = self.client.get_raw(KVM_URI)
-                new_timeout = kvm_data.get("SessionTimeoutMinutes")
+                kvm_data = self.client.get_kvm_service()
+                new_timeout = getattr(kvm_data, "SessionTimeoutMinutes", None)
                 test.print_log("INFO", f"验证 SessionTimeoutMinutes={new_timeout}")
                 checks.append(("SessionTimeoutMinutes 设置验证", new_timeout == TEST_SESSION_TIMEOUT))
                 kvm_info["after_patch"] = {"SessionTimeoutMinutes": new_timeout}
@@ -114,11 +108,10 @@ class Managers012KvmTest(BmcTestBase):
             # 5. 恢复原始 Timeout
             test.print_log("INFO", f"恢复原始 SessionTimeoutMinutes={original_timeout}...")
             try:
-                self.client.patch(KVM_URI, {"SessionTimeoutMinutes": original_timeout})
+                self.client.patch(kvm_data.odata_id, {"SessionTimeoutMinutes": original_timeout})
                 time.sleep(1)
-                # [SDK-GAP] 同上，KvmService OEM 路径
-                kvm_data = self.client.get_raw(KVM_URI)
-                restored = kvm_data.get("SessionTimeoutMinutes")
+                kvm_data = self.client.get_kvm_service()
+                restored = getattr(kvm_data, "SessionTimeoutMinutes", None)
                 checks.append(("SessionTimeoutMinutes 恢复验证", restored == original_timeout))
                 kvm_info["after_restore"] = {"SessionTimeoutMinutes": restored}
             except RedfishException as e:

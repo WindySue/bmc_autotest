@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web启动顺序设置（Web_006）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_068 - 查询启动设备列表，验证PXE/HD等可用
 
 Usage: python3 -m bmc.web_006_boot_order -i <bmc_ip> -u <user> -p <pass>
@@ -28,8 +29,8 @@ class WebBootOrder(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        sys_uri = self.conf.get('SystemUri', '/redfish/v1/Systems/1')
-        boot_opts_uri = self.conf.get('BootOptionsUri', '/redfish/v1/Systems/1/BootOptions')
+        sys_uri = self._redfish_uri('system', conf_key='SystemUri')
+        boot_opts_uri = self._redfish_uri('boot_options', conf_key='BootOptionsUri')
         req_devs = self.conf.get('RequiredBootDevices', ['Pxe','Hdd'])
 
         # 各厂商启动设备关键字映射（模糊匹配，大小写不敏感）

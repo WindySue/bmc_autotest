@@ -138,14 +138,17 @@ class SELLogViewCheck(BmcTestBase):
         CommonFunction.print_log("INFO", f"单 LogService 获取成功：Id={single.id}")
 
         actions = single.actions or {}
-        if "#LogService.ClearLog" in actions:
-            target = actions.get("#LogService.ClearLog", {}).get("target")
+        # SDK LogActions 模型（非裸 dict），用属性访问；转 dict 仅用于 key 枚举展示
+        actions_dict = actions.model_dump(exclude_none=True) if hasattr(actions, "model_dump") else (actions or {})
+        if getattr(actions, "clear_log", None) is not None or "#LogService.ClearLog" in actions_dict:
+            target = getattr(actions.clear_log, "target", None) if getattr(actions, "clear_log", None) else \
+                actions_dict.get("#LogService.ClearLog", {}).get("target")
             CommonFunction.print_log("INFO", f"  含 #LogService.ClearLog Action（target={target}）")
         else:
             CommonFunction.print_log(
                 "WARNING",
                 f"  未发现 #LogService.ClearLog Action（厂商差异，清除可走 DELETE Entries），"
-                f"actions keys={list(actions.keys())}"
+                f"actions keys={list(actions_dict.keys())}"
             )
         return True
 

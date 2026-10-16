@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web配置导出（Web_014）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_070~073 - BMC/BIOS配置可查询
 
 Usage: python3 -m bmc.web_014_config_export -i <bmc_ip> -u <user> -p <pass>
@@ -28,8 +29,8 @@ class WebConfigExport(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        bmc_uri  = self.conf.get('BmcConfigUri', '/redfish/v1/Managers/1')
-        bios_uri = self.conf.get('BiosConfigUri', '/redfish/v1/Systems/1/Bios')
+        bmc_uri  = self._redfish_uri('manager', conf_key='BmcConfigUri')
+        bios_uri = self._redfish_uri('bios', conf_key='BiosConfigUri')
 
         # BMC 配置可查
         code, body = client.get(bmc_uri)

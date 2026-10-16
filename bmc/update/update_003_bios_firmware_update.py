@@ -16,6 +16,7 @@ Update:
 2026/06/09: 重构 — 使用 SDK 原生 wait_for_task() 替代自定义轮询；
             参数解析改为 override _add_args()，适配 BmcTestBase 统一规范；
             类型注解对齐 update_002
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 
 测试内容（正向 + 自动恢复）：
   阶段A 正向刷新：
@@ -42,7 +43,7 @@ Update:
   - BIOS 版本从 GET /redfish/v1/Systems/1 的 BiosVersion 字段读取
   - ServerIP 为服务器带内 IP（非 BMC IP），未配置则跳过 OS ping 检测，等待 120s
   - SDK wait_for_task() 覆盖超时为 1800s，轮询间隔 15s
-  - simple_update() 自动检测厂商并路由到对应 OEM 策略（浪潮/中兴/联想等）
+  - simple_update() 由 SDK 自动检测厂商并路由到对应 OEM 更新策略
 """
 
 import argparse
@@ -68,11 +69,6 @@ SHUTDOWN_TIMEOUT_SEC = 300    # GracefulShutdown 等待服务器关机超时
 POWEROFF_WAIT_SEC    = 30     # AC 断电后等待时间
 POWERON_TIMEOUT_SEC  = 600    # AC 上电后等待 OS POST 完成超时
 POLL_INTERVAL_SEC    = 10     # 恢复检测轮询间隔
-
-SIMPLE_UPDATE_TARGETS = ["/redfish/v1/Systems/1"]
-SYSTEMS_URI           = "/redfish/v1/Systems/1"
-RESET_URI             = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
-
 
 class Update003BiosFirmwareUpdate(BmcTestBase):
     """BIOS 固件版本刷新功能测试（正向 + 自动恢复）
@@ -223,10 +219,13 @@ class Update003BiosFirmwareUpdate(BmcTestBase):
         checks: list[tuple[str, bool]] = []
 
         # ── 步骤1：simple_update() ──────────────────────────────────────────
+        # targets 取 System 资源 @odata.id（SDK 动态发现，不硬编码）
+        sys_obj = self.client.get_system()
+        systems_uri = sys_obj.odata_id
         su_kwargs: dict[str, Any] = {
             "image_uri":         image_uri,
             "transfer_protocol": self.PROTOCOL,
-            "targets":           SIMPLE_UPDATE_TARGETS,
+            "targets":           [systems_uri],
             "flash_item":        "BIOS",
             "bios_flash":        self.BIOS_FLASH,
         }
@@ -303,9 +302,15 @@ class Update003BiosFirmwareUpdate(BmcTestBase):
 
         # ── 步骤3：完整下上电周期 ────────────────────────────────────────────
         # GracefulShutdown → 等关机
+        # Reset target 由 System 资源 Actions 元数据动态发现
+        actions = getattr(sys_obj, "Actions", None) or {}
+        reset_action = actions.get("#ComputerSystem.Reset", {})
+        reset_uri = reset_action.get("target", "") if isinstance(reset_action, dict) else ""
+        if not reset_uri:
+            raise RedfishException("System 响应中无 #ComputerSystem.Reset target")
         test.print_log("INFO", f"[{phase_label}] BIOS 已写入，触发 GracefulShutdown...")
         try:
-            self.client.post(RESET_URI, {"ResetType": "GracefulShutdown"})
+            self.client.post(reset_uri, {"ResetType": "GracefulShutdown"})
         except RedfishException as e:
             test.print_log("ERROR", f"[{phase_label}] GracefulShutdown 失败：{e}")
             checks.append(("GracefulShutdown 发送成功", False))
@@ -323,7 +328,7 @@ class Update003BiosFirmwareUpdate(BmcTestBase):
         # ForceOff（AC 断电）→ 冷却等待
         test.print_log("INFO", f"[{phase_label}] AC 断电（ForceOff）...")
         try:
-            self.client.post(RESET_URI, {"ResetType": "ForceOff"})
+            self.client.post(reset_uri, {"ResetType": "ForceOff"})
         except RedfishException as e:
             # 已处于 Off 状态时可能返回错误，非致命
             test.print_log("WARNING",
@@ -336,7 +341,7 @@ class Update003BiosFirmwareUpdate(BmcTestBase):
         # On（AC 上电）
         test.print_log("INFO", f"[{phase_label}] AC 上电（On）...")
         try:
-            self.client.post(RESET_URI, {"ResetType": "On"})
+            self.client.post(reset_uri, {"ResetType": "On"})
             checks.append(("AC 上电命令发送成功", True))
         except RedfishException as e:
             test.print_log("ERROR", f"[{phase_label}] AC 上电失败：{e}")

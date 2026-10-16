@@ -9,6 +9,8 @@ Update:
            改用 client.post() 直接调用 Manager 的 Reset Action（BMC 管理控制器）
 2026/05/08: 改善 - 新增 Redfish 恢复验证（10min内）和 IPMI mc info 验证（10min内）
            业务要求：5min 内 IP ping 通，10min 内 Redfish 和 IPMI 接口恢复
+2026/10/16: SDK 1.3.0 适配 - 改用 reset_manager()（SDK 自动发现 Manager.Reset target，
+           1.1.1 的 client.reset() 走 Systems 的问题已由 SDK 独立接口解决）（issue/8）
 """
 
 import os
@@ -28,9 +30,6 @@ PING_TIMEOUT = 300    # 业务要求：5min 内 IP ping 通（秒）
 REDFISH_TIMEOUT = 600 # 业务要求：10min 内 Redfish 恢复（秒）
 IPMI_TIMEOUT = 600    # 业务要求：10min 内 IPMI 接口恢复（秒）
 POLL_INTERVAL = 10    # 轮询间隔（秒）
-
-# BMC Manager Reset Action URI（注意：不是 Systems 的 Reset，Systems Reset 会重启服务器整机）
-MANAGER_RESET_URI = "/redfish/v1/Managers/1/Actions/Manager.Reset"
 
 class Managers007BmcReset(BmcTestBase):
     """BMC 冷/热重启功能测试
@@ -135,10 +134,10 @@ class Managers007BmcReset(BmcTestBase):
             checks.append(("BMC 重启前可连接", True))
 
             # 2. 调用 Manager.Reset 重启 BMC（走 BMC 管理控制器，不是服务器整机）
-            # ⚠️ 注意：SDK 的 client.reset() 走的是 Systems（服务器）Reset，不能用！
-            # 必须直接 POST Manager 的 Action URI
-            test.print_log("INFO", f"发起 BMC 重启（ForceRestart）-> POST {MANAGER_RESET_URI}")
-            self.client.post(MANAGER_RESET_URI, {"ResetType": "ForceRestart"})
+            # SDK 1.3.0 reset_manager() 使用 Manager 资源自身广播的 Reset target，
+            # 与 Systems 的 Reset（重启整机）完全独立
+            test.print_log("INFO", "发起 BMC 重启（ForceRestart）-> reset_manager()")
+            self.client.reset_manager(reset_type="ForceRestart")
             self.client.close()
             self.client = None
             test.print_log("INFO", "BMC 重启命令已发送（仅重启 BMC 管理控制器，不影响服务器）")

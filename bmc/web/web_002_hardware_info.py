@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web硬件信息查询（Web_002）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_001~015,018,021 - CPU/内存/硬盘/网卡/GPU/PSU/风扇信息
 
 Usage: python3 -m bmc.web_002_hardware_info -i <bmc_ip> -u <user> -p <pass>
@@ -28,10 +29,30 @@ class WebHardwareInfo(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
+        # 检查项 URI 动态发现（conf 中 uri 字段仅作显式覆盖，正常应删除）
+        uri_map = {
+            'cpu':        lambda: self._redfish_uri('system') + '/Processors',
+            'memory':     lambda: self._redfish_uri('system') + '/Memory',
+            'drives':     lambda: self._redfish_uri('chassis') + '/Drives',
+            'network_adapters': lambda: self._redfish_uri('chassis') + '/NetworkAdapters',
+            'pcie_devices':     lambda: self._redfish_uri('chassis') + '/PCIeDevices',
+            'power':      lambda: self._redfish_uri('power'),
+            'thermal':    lambda: self._redfish_uri('thermal'),
+            'chassis':    lambda: self._redfish_uri('chassis'),
+        }
         items = self.conf.get('CheckItems', [])
         for item in items:
-            name = item['name'];  uri = item['uri'];  req_fields = item.get('required_fields', [])
+            name = item['name'];  req_fields = item.get('required_fields', [])
             optional = item.get('optional', False)  # optional=True 时失败记 WARNING 不 FAIL
+            # URI：conf 显式配置优先，否则按 resource key 动态发现
+            uri = item.get('uri', '')
+            if not uri:
+                res_key = item.get('resource', '')
+                uri = uri_map.get(res_key, lambda: '')()
+            if not uri:
+                all_pass = self._rec(steps, all_pass, name, False,
+                                     'URI 未配置且无法动态发现（resource=' + item.get('resource', '?') + '）')
+                continue
 
             # ---- CPU：查集合，取第一个 Central Processor 成员验证字段 ----
             if item.get('type') == 'cpu_from_collection':

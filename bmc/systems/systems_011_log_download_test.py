@@ -5,14 +5,15 @@ Date: 2026/04/22
 Usage: python3 bmc/systems_011_log_download_test.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/22: 新增
+2026/10/16: SDK 1.3.0 适配 - 标准接口改用 collect_and_download_diagnostic_data()
+  （SDK 1.3.0 已封装），URI 由 SDK 自动发现；OEM 定制接口仍走 conf 配置（issue/8）
 
 校验策略：
 
-  【标准接口】（Redfish 2019+ DiagnosticData，SDK 暂未封装）
-  POST /redfish/v1/Managers/1/LogServices/{log_id}/Actions/LogService.CollectDiagnosticData
-    Body: {"DiagnosticDataType": "Manager"}
+  【标准接口】（SDK 1.3.0 collect_and_download_diagnostic_data）
+  SDK 自动发现 LogService 与 CollectDiagnosticData target
     2xx → PASS
-    非2xx/404 → 标准接口 FAIL，尝试定制接口
+    失败 → 标准接口 FAIL，尝试定制接口
 
   【定制接口兜底】（由厂商提供 URL 和 Body，配置在 conf/bmc/systems/systems_011_log_download_test.json）
   Custom.Enabled=true 时：
@@ -76,8 +77,7 @@ class LogDownloadTest(BmcTestBase):
                     self.TEST_NUM      = conf_section["TestNum"]
                     self.LOG_BASE_NAME = conf_section["LogBasename"]
                     break
-        # 标准接口配置
-        self.STANDARD_URL  = conf_section["StandardUrl"]
+        # 标准接口：SDK 1.3.0 collect_and_download_diagnostic_data()（URI 由 SDK 自动发现）
         self.STANDARD_BODY = conf_section.get("StandardBody", {})
         # 定制接口配置（厂商 OEM）
         custom = conf_section.get("Custom", {})
@@ -131,14 +131,23 @@ class LogDownloadTest(BmcTestBase):
         test.print_log("INFO", f"测试用例名称：{self.TEST_NAME}，测试用例编号：{self.TEST_NUM}")
         test.print_log("INFO", "测试开始")
         test.print_log("INFO",
-            "注：redfish_python_sdk 暂未封装一键日志接口，当前使用 client.post 直接调用。"
-            "标准接口优先，定制接口兜底（2xx=PASS+WARNING，均失败=FAIL）。")
+            "注：标准接口使用 SDK 1.3.0 collect_and_download_diagnostic_data()（URI 自动发现），"
+            "定制接口兜底（2xx=PASS+WARNING，均失败=FAIL）。")
 
         self._init_client()
 
-        # ── Step 1：标准接口 ────────────────────────────────────────────────
-        CommonFunction.print_log("INFO", f"Step 1：尝试标准 Redfish 一键日志接口")
-        standard_ok = self._try_post(self.STANDARD_URL, self.STANDARD_BODY, "标准接口")
+        # ── Step 1：标准接口（SDK 1.3.0 类型化接口）─────────────────────────
+        CommonFunction.print_log("INFO", "Step 1：尝试标准 Redfish 一键日志接口（SDK collect_and_download_diagnostic_data）")
+        standard_ok = False
+        try:
+            self.client.collect_and_download_diagnostic_data(
+                diagnostic_data_type=self.STANDARD_BODY.get("DiagnosticDataType", "Manager"),
+            )
+            standard_ok = True
+        except RedfishException as e:
+            CommonFunction.print_log("INFO", f"[标准接口] SDK 调用失败：{str(e)[:200]}")
+        except Exception as e:
+            CommonFunction.print_log("ERROR", f"[标准接口] 未预期异常：{type(e).__name__}: {str(e)[:200]}")
 
         if standard_ok:
             overall = "PASS"
@@ -153,7 +162,7 @@ class LogDownloadTest(BmcTestBase):
         else:
             CommonFunction.print_log(
                 "ERROR",
-                f"标准接口调用失败（{self.STANDARD_URL}），该 BMC 不符合 Redfish 标准一键日志规范"
+                "标准接口调用失败（collect_and_download_diagnostic_data），该 BMC 不符合 Redfish 标准一键日志规范"
             )
             test.add_key_value_to_json(
                 self.result_json_path, "detail.cycle",
@@ -184,8 +193,8 @@ class LogDownloadTest(BmcTestBase):
                 if custom_ok:
                     CommonFunction.print_log(
                         "WARNING",
-                        f"定制接口调用成功，但该 BMC 不支持标准 Redfish 一键日志接口，不符合规范，"
-                        f"请推动厂商实现标准接口（{self.STANDARD_URL}）"
+                        "定制接口调用成功，但该 BMC 不支持标准 Redfish 一键日志接口，不符合规范，"
+                        "请推动厂商实现标准接口（LogService.CollectDiagnosticData）"
                     )
                     overall = "PASS"
                     test.add_key_value_to_json(

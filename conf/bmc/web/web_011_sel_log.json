@@ -7,8 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "LogServicesUri": "/redfish/v1/Managers/1/LogServices",
-        "SelUri": "/redfish/v1/Managers/1/LogServices/SEL/Entries",
         "RequiredEntryFields": [
             "Id",
             "EntryType",

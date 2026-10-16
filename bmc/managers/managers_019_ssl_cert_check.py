@@ -2,9 +2,10 @@
 """
 Author: Fengmian
 Date: 2026/05/11
-Usage: python3 bmc/managers_016_dns_check.py -i <bmc_ip> -u <username> -p <password>
+Usage: python3 bmc/managers_019_ssl_cert_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
-2026/05/11: 新增，BMC DNS 服务配置检查，验证 HostNameConfig 和 DnsIpConfig 字段
+2026/05/11: 新增，BMC HTTPS SSL 证书检查，验证 Issuer/Subject/ValidNotAfter/PublicKeyLengthBits
+2026/10/16: SDK 1.3.0 适配 - 改用 get_https_cert() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,23 +20,23 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-DNS_SERVICE_URI = "/redfish/v1/Managers/1/DnsService"
 
-class Managers016DnsCheck(BmcTestBase):
-    """BMC DNS 服务配置检查
+class Managers019SslCertCheck(BmcTestBase):
+    """BMC HTTPS SSL 证书检查
 
-    用例编号：Redfish_Managers_016
+    用例编号：Redfish_Managers_019
     测试内容：
-    - GET /redfish/v1/Managers/1/DnsService 接口可达
-    - HostNameConfig 字段存在且为 dict
-    - DnsIpConfig 字段存在且为 dict
-    - DnsIpConfig.NameServers 存在（list，可为空）
+    - GET /redfish/v1/Managers/1/SecurityService/HttpsCert 接口可达
+    - Issuer 存在且非空
+    - Subject 存在且非空
+    - ValidNotAfter 存在
+    - PublicKeyLengthBits 存在且 >=2048
     """
 
     def __init__(self, case: str):
         super().__init__(
             case=case,
-            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_016_dns_check.json"),
+            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_019_ssl_cert_check.json"),
         )
     def run_test(self):
         test = CommonFunction()
@@ -43,7 +44,7 @@ class Managers016DnsCheck(BmcTestBase):
         test.print_log("INFO", "测试开始")
 
         checks = []
-        dns_info = {}
+        cert_info = {}
         final = "FAIL"
 
         try:
@@ -53,42 +54,45 @@ class Managers016DnsCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET DnsService 接口
-            test.print_log("INFO", "=== 步骤1: 查询 DnsService 配置 ===")
-            # [SDK-GAP] get_raw(DNS_SERVICE_URI) 获取 DnsService 配置：
-            #   DnsService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/DnsService')："
-                           "DnsService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            dns_data = self.client.get_raw(DNS_SERVICE_URI)
-            test.print_log("INFO", "DnsService 接口查询成功")
-            checks.append(("DnsService 接口查询成功", True))
+            # 1. GET HttpsCert 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            test.print_log("INFO", "=== 步骤1: 查询 HttpsCert 配置 ===")
+            cert_data = self.client.get_https_cert()
+            test.print_log("INFO", "HttpsCert 接口查询成功")
+            checks.append(("HttpsCert 接口查询成功", True))
 
-            # 2. HostNameConfig 字段存在且为 dict
-            hostname_config = dns_data.get("HostNameConfig")
-            hostname_ok = isinstance(hostname_config, dict)
-            test.print_log("INFO", f"HostNameConfig: {'✓ 存在且为 dict' if hostname_ok else '✗ 缺失或类型不对'}")
-            checks.append(("HostNameConfig 存在且为 dict", hostname_ok))
-
-            # 3. DnsIpConfig 字段存在且为 dict
-            dns_ip_config = dns_data.get("DnsIpConfig")
-            dns_ip_ok = isinstance(dns_ip_config, dict)
-            test.print_log("INFO", f"DnsIpConfig: {'✓ 存在且为 dict' if dns_ip_ok else '✗ 缺失或类型不对'}")
-            checks.append(("DnsIpConfig 存在且为 dict", dns_ip_ok))
-
-            # 4. DnsIpConfig.NameServers 存在（list，可为空）
-            nameservers_ok = False
-            nameservers_val = None
-            if isinstance(dns_ip_config, dict):
-                nameservers_val = dns_ip_config.get("NameServers")
-                nameservers_ok = isinstance(nameservers_val, list)
+            # 2. Issuer 存在且非空（OEM 扩展字段，经 extra 保留可属性访问）
+            issuer = getattr(cert_data, "Issuer", None)
+            issuer_ok = isinstance(issuer, str) and len(issuer.strip()) > 0
             test.print_log("INFO",
-                f"DnsIpConfig.NameServers: {'✓ 存在且为 list' if nameservers_ok else '✗ 缺失或类型不对'} "
-                f"（值：{nameservers_val}）")
-            checks.append(("DnsIpConfig.NameServers 存在（list）", nameservers_ok))
+                f"Issuer: {'✓' if issuer_ok else '✗'} {issuer!r}")
+            checks.append(("Issuer 存在且非空", issuer_ok))
+
+            # 3. Subject 存在且非空（OEM 扩展字段）
+            subject = getattr(cert_data, "Subject", None)
+            subject_ok = isinstance(subject, str) and len(subject.strip()) > 0
+            test.print_log("INFO",
+                f"Subject: {'✓' if subject_ok else '✗'} {subject!r}")
+            checks.append(("Subject 存在且非空", subject_ok))
+
+            # 4. ValidNotAfter 存在（OEM 扩展字段）
+            valid_not_after = getattr(cert_data, "ValidNotAfter", None)
+            valid_not_after_ok = valid_not_after is not None
+            test.print_log("INFO",
+                f"ValidNotAfter: {'✓' if valid_not_after_ok else '✗'} {valid_not_after!r}")
+            checks.append(("ValidNotAfter 存在", valid_not_after_ok))
+
+            # 5. PublicKeyLengthBits 存在且 >=2048（OEM 扩展字段）
+            pub_key_len = getattr(cert_data, "PublicKeyLengthBits", None)
+            pub_key_ok = isinstance(pub_key_len, (int, float)) and pub_key_len >= 2048
+            test.print_log("INFO",
+                f"PublicKeyLengthBits: {'✓' if pub_key_ok else '✗'} {pub_key_len!r}")
+            checks.append(("PublicKeyLengthBits 存在且 >=2048", pub_key_ok))
 
             # 记录详细信息
-            dns_info["HostNameConfig"] = hostname_config
-            dns_info["DnsIpConfig"] = dns_ip_config
+            cert_info["Issuer"] = issuer
+            cert_info["Subject"] = subject
+            cert_info["ValidNotAfter"] = valid_not_after
+            cert_info["PublicKeyLengthBits"] = pub_key_len
 
             final = "PASS" if all(r for _, r in checks) else "FAIL"
 
@@ -107,10 +111,9 @@ class Managers016DnsCheck(BmcTestBase):
                     pass
 
         # 结果写入
-        test.add_key_value_to_json(self.result_json_path, "detail.cycle",
-                                   value={"metrics": "HostNameConfig", "value": hostname_config})
-        test.add_key_value_to_json(self.result_json_path, "detail.cycle",
-                                   value={"metrics": "DnsIpConfig", "value": dns_ip_config})
+        for field_name, field_val in cert_info.items():
+            test.add_key_value_to_json(self.result_json_path, "detail.cycle",
+                                       value={"metrics": field_name, "value": field_val})
         for label, passed in checks:
             test.add_key_value_to_json(self.result_json_path, "detail.cycle",
                                        value={"metrics": label, "value": "PASS" if passed else "FAIL"})
@@ -126,7 +129,7 @@ if __name__ == '__main__':
     exit_code = 0
     test_name = None
     try:
-        test_name = Managers016DnsCheck("Managers016DnsCheck")
+        test_name = Managers019SslCertCheck("Managers019SslCertCheck")
         test_name.run_test()
         if test_name.command_check_result in ["FINISH", "PASS"]:
             exit_code = 0

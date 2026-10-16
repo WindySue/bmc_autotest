@@ -6,9 +6,11 @@ Usage: python3 bmc/systems_014_html5kvm_test.py -i <bmc_ip> -u <username> -p <pa
 Update:
 2026/05/08: 新增，HTML5KVM 创建与最大化测试
 2026/05/08: 重写 — 不再重复 012 的参数校验，聚焦实际 KVM 会话创建能力验证
+2026/10/16: SDK 1.3.0 适配 - 移除硬编码 KvmService URI（get_kvm_service 已由 SDK
+  自动发现），清理 docstring 中的硬编码路径（issue/8）
 
 测试策略：
-  被测 BMC 的 KVM 会话创建机制：每次 GET /redfish/v1/Managers/1/KvmService 会生成
+  被测 BMC 的 KVM 会话创建机制：每次 GET KvmService（URI 由 SDK 自动发现）会生成
   一个带唯一 token 的 KvmUrl，浏览器打开该 URL 即建立 KVM 会话。
    使用 SDK get_kvm_service() 获取 KVM 会话信息。
 
@@ -35,8 +37,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-KVM_SERVICE_URI = "/redfish/v1/Managers/1/KvmService"
 
 # 测试创建的会话数（验证 ≥2 的业务要求）
 TEST_SESSION_COUNT = 3

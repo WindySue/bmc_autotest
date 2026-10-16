@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web固件版本查询（Web_003）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_022 - BMC/BIOS/CPLD等固件版本
 
 Usage: python3 -m bmc.web_003_firmware_version -i <bmc_ip> -u <user> -p <pass>
@@ -28,7 +29,7 @@ class WebFirmwareVersion(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        inv_uri = self.conf.get('FirmwareInventoryUri', '/redfish/v1/UpdateService/FirmwareInventory')
+        inv_uri = self._redfish_uri('firmware_inventory', conf_key='FirmwareInventoryUri')
         req_comps = self.conf.get('RequiredComponents', ['BMC', 'BIOS'])
 
         code, body = client.get(inv_uri)

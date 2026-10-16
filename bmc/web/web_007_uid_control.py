@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web UID灯控制（Web_007）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_050,051 - 查询/控制UID灯状态
 
 Usage: python3 -m bmc.web_007_uid_control -i <bmc_ip> -u <user> -p <pass>
@@ -29,10 +30,10 @@ class WebUidControl(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        chassis_uri = self.conf.get('ChassisUri', '/redfish/v1/Chassis/1')
-        patch_uri   = self.conf.get('PatchUri', '/redfish/v1/Chassis/1')
+        chassis_uri = self._redfish_uri('chassis', conf_key='ChassisUri')
+        patch_uri   = self._redfish_uri('chassis', conf_key='PatchUri')
 
-        # GET Chassis，同时拿 ETag（浪潮等厂商 PATCH 需要 If-Match）
+        # GET Chassis，同时拿 ETag（部分厂商 PATCH 需要 If-Match）
         _ctx = ssl.create_default_context(); _ctx.check_hostname = False; _ctx.verify_mode = ssl.CERT_NONE
         etag = ''
         code: int = -1;  body: dict = {}

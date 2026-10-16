@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web通电开机策略（Web_005）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_066 - 查询并验证通电策略默认值
 
 Usage: python3 -m bmc.web_005_power_restore_policy -i <bmc_ip> -u <user> -p <pass>
@@ -28,7 +29,7 @@ class WebPowerRestorePolicy(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        sys_uri = self.conf.get('SystemUri', '/redfish/v1/Systems/1')
+        sys_uri = self._redfish_uri('system', conf_key='SystemUri')
         expected = self.conf.get('ExpectedDefaults', ['RestorePreviousState','LastState'])
         allowable = self.conf.get('AllowableValues', [])
 

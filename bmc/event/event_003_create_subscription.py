@@ -2,7 +2,9 @@
 """
 Author: Fengmian
 Date: 2026/05/14
-Update: 2026/07/02 — SDK v1.1.1 subscribe() 原生支持 http_headers，简化 ZTE 降级代码
+Update: 2026/07/02 — SDK v1.1.1 subscribe() 原生支持 http_headers，简化厂商降级代码
+Update: 2026/10/16 — SDK 1.3.0 适配 - 订阅集合 URI 改由 EventService.Subscriptions
+        链接动态发现，不再硬编码（issue/8）
 Usage: python3 bmc/event_003_create_subscription.py -i <bmc_ip> -u <username> -p <password>
 
 测试内容：
@@ -34,7 +36,6 @@ from func.bmc_event_test_base import BmcEventTestBase
 from redfish_sdk import RedfishClient, RedfishException
 
 
-SUB_COL_URI           = "/redfish/v1/EventService/Subscriptions"
 PROTECTED_DESTINATION = "10.27.97.201:8444"
 
 class Event003CreateSubscription(BmcEventTestBase):
@@ -54,6 +55,10 @@ class Event003CreateSubscription(BmcEventTestBase):
         self.test_sub_dest    = conf.get("TestSubDestination", "https://192.0.2.99:9999/test")
         self.test_sub_context = conf.get("TestSubContext",     "xhs_test_sub_do_not_keep")
 
+    def _get_sub_col_uri(self) -> str:
+        """订阅集合 URI 由 EventService.Subscriptions 链接动态发现"""
+        return self.client.get_event_service().subscriptions.odata_id
+
     def _get_members_raw(self):
         """Use SDK get_subscriptions() to get subscription list."""
         subs = self.client.get_subscriptions()
@@ -67,6 +72,9 @@ class Event003CreateSubscription(BmcEventTestBase):
 
         findings = []
         try:
+            # 订阅集合 URI（动态发现）
+            sub_col_uri = self._get_sub_col_uri()
+
             # 记录创建前的集合状态（get_raw 兜底，不依赖 SDK pydantic）
             members_before = self._get_members_raw()
             count_before   = len(members_before)
@@ -168,14 +176,14 @@ class Event003CreateSubscription(BmcEventTestBase):
             self.log.error(f"未预期异常：{e}\n{traceback.format_exc()}")
         finally:
             # Cleanup（保护：只删具体订阅 URI，不删集合 URI）
-            if self._created_sub_uri and self._created_sub_uri != SUB_COL_URI:
+            if self._created_sub_uri and self._created_sub_uri != sub_col_uri:
                 try:
                     self.log.info(f"  Cleanup：删除测试订阅 {self._created_sub_uri}")
                     self.client.delete(self._created_sub_uri)
                     self.log.info("  Cleanup 完成")
                 except Exception as e:
                     self.log.warning(f"  Cleanup 失败：{e}")
-            elif self._created_sub_uri == SUB_COL_URI:
+            elif self._created_sub_uri == sub_col_uri:
                 self.log.warning("  Cleanup 跳过：new_uri 为集合 URI，无法确定具体订阅 ID，请手动清理")
             self.client.close()
 

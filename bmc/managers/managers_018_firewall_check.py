@@ -2,9 +2,10 @@
 """
 Author: Fengmian
 Date: 2026/05/11
-Usage: python3 bmc/managers_019_ssl_cert_check.py -i <bmc_ip> -u <username> -p <password>
+Usage: python3 bmc/managers_018_firewall_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
-2026/05/11: 新增，BMC HTTPS SSL 证书检查，验证 Issuer/Subject/ValidNotAfter/PublicKeyLengthBits
+2026/05/11: 新增，BMC 防火墙规则配置检查，验证 ActiveStrategy 和 Rules
+2026/10/16: SDK 1.3.0 适配 - 改用 get_firewall_rules() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,24 +20,22 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-HTTPS_CERT_URI = "/redfish/v1/Managers/1/SecurityService/HttpsCert"
+VALID_STRATEGIES = ["Accept", "Drop"]
 
-class Managers019SslCertCheck(BmcTestBase):
-    """BMC HTTPS SSL 证书检查
+class Managers018FirewallCheck(BmcTestBase):
+    """BMC 防火墙规则配置检查
 
-    用例编号：Redfish_Managers_019
+    用例编号：Redfish_Managers_018
     测试内容：
-    - GET /redfish/v1/Managers/1/SecurityService/HttpsCert 接口可达
-    - Issuer 存在且非空
-    - Subject 存在且非空
-    - ValidNotAfter 存在
-    - PublicKeyLengthBits 存在且 >=2048
+    - GET /redfish/v1/Managers/1/SecurityService/FirewallRules 接口可达
+    - ActiveStrategy 存在且在 ["Accept", "Drop"] 中
+    - Rules 存在（list，可为空）
     """
 
     def __init__(self, case: str):
         super().__init__(
             case=case,
-            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_019_ssl_cert_check.json"),
+            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_018_firewall_check.json"),
         )
     def run_test(self):
         test = CommonFunction()
@@ -44,7 +43,7 @@ class Managers019SslCertCheck(BmcTestBase):
         test.print_log("INFO", "测试开始")
 
         checks = []
-        cert_info = {}
+        firewall_info = {}
         final = "FAIL"
 
         try:
@@ -54,49 +53,33 @@ class Managers019SslCertCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET HttpsCert 接口
-            test.print_log("INFO", "=== 步骤1: 查询 HttpsCert 配置 ===")
-            # [SDK-GAP] get_raw(HTTPS_CERT_URI) 获取 HttpsCert 配置：
-            #   SecurityService/HttpsCert 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SecurityService/HttpsCert')："
-                           "HttpsCert 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            cert_data = self.client.get_raw(HTTPS_CERT_URI)
-            test.print_log("INFO", "HttpsCert 接口查询成功")
-            checks.append(("HttpsCert 接口查询成功", True))
+            # 1. GET FirewallRules 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            test.print_log("INFO", "=== 步骤1: 查询 FirewallRules 配置 ===")
+            fw_data = self.client.get_firewall_rules()
+            test.print_log("INFO", "FirewallRules 接口查询成功")
+            checks.append(("FirewallRules 接口查询成功", True))
 
-            # 2. Issuer 存在且非空
-            issuer = cert_data.get("Issuer")
-            issuer_ok = isinstance(issuer, str) and len(issuer.strip()) > 0
+            # 2. ActiveStrategy 存在且在 ["Accept", "Drop"] 中（OEM 扩展字段，经 extra 保留可属性访问）
+            active_strategy = getattr(fw_data, "ActiveStrategy", None)
+            strategy_ok = active_strategy in VALID_STRATEGIES
             test.print_log("INFO",
-                f"Issuer: {'✓' if issuer_ok else '✗'} {issuer!r}")
-            checks.append(("Issuer 存在且非空", issuer_ok))
+                f"ActiveStrategy: {'✓' if strategy_ok else '✗'} {active_strategy!r} "
+                f"（期望：{VALID_STRATEGIES}）")
+            checks.append(("ActiveStrategy 存在且在有效枚举中", strategy_ok))
 
-            # 3. Subject 存在且非空
-            subject = cert_data.get("Subject")
-            subject_ok = isinstance(subject, str) and len(subject.strip()) > 0
+            # 3. Rules 存在（list，可为空，OEM 扩展字段）
+            rules = getattr(fw_data, "Rules", None)
+            rules_ok = isinstance(rules, list)
+            rules_count = len(rules) if rules_ok else 0
             test.print_log("INFO",
-                f"Subject: {'✓' if subject_ok else '✗'} {subject!r}")
-            checks.append(("Subject 存在且非空", subject_ok))
-
-            # 4. ValidNotAfter 存在
-            valid_not_after = cert_data.get("ValidNotAfter")
-            valid_not_after_ok = valid_not_after is not None
-            test.print_log("INFO",
-                f"ValidNotAfter: {'✓' if valid_not_after_ok else '✗'} {valid_not_after!r}")
-            checks.append(("ValidNotAfter 存在", valid_not_after_ok))
-
-            # 5. PublicKeyLengthBits 存在且 >=2048
-            pub_key_len = cert_data.get("PublicKeyLengthBits")
-            pub_key_ok = isinstance(pub_key_len, (int, float)) and pub_key_len >= 2048
-            test.print_log("INFO",
-                f"PublicKeyLengthBits: {'✓' if pub_key_ok else '✗'} {pub_key_len!r}")
-            checks.append(("PublicKeyLengthBits 存在且 >=2048", pub_key_ok))
+                f"Rules: {'✓ 存在（list）' if rules_ok else '✗ 缺失或类型不对'} "
+                f"（数量：{rules_count}）")
+            checks.append(("Rules 存在（list）", rules_ok))
 
             # 记录详细信息
-            cert_info["Issuer"] = issuer
-            cert_info["Subject"] = subject
-            cert_info["ValidNotAfter"] = valid_not_after
-            cert_info["PublicKeyLengthBits"] = pub_key_len
+            firewall_info["ActiveStrategy"] = active_strategy
+            firewall_info["RulesCount"] = rules_count
+            firewall_info["Rules"] = rules
 
             final = "PASS" if all(r for _, r in checks) else "FAIL"
 
@@ -115,7 +98,7 @@ class Managers019SslCertCheck(BmcTestBase):
                     pass
 
         # 结果写入
-        for field_name, field_val in cert_info.items():
+        for field_name, field_val in firewall_info.items():
             test.add_key_value_to_json(self.result_json_path, "detail.cycle",
                                        value={"metrics": field_name, "value": field_val})
         for label, passed in checks:
@@ -133,7 +116,7 @@ if __name__ == '__main__':
     exit_code = 0
     test_name = None
     try:
-        test_name = Managers019SslCertCheck("Managers019SslCertCheck")
+        test_name = Managers018FirewallCheck("Managers018FirewallCheck")
         test_name.run_test()
         if test_name.command_check_result in ["FINISH", "PASS"]:
             exit_code = 0

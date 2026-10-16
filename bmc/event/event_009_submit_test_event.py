@@ -2,11 +2,13 @@
 """
 Author: Fengmian
 Date: 2026/05/14
+Update:
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 Usage: python3 bmc/event_009_submit_test_event.py -i <bmc_ip> -u <username> -p <password>
 
 测试内容：
   模拟测试事件上报（正向）
-  POST /redfish/v1/EventService/Actions/EventService.SubmitTestEvent
+  POST EventService.SubmitTestEvent（URI 由 SDK 从 EventService.Actions 动态获取）
   使用合法的 EventType，验证 BMC 正常响应（不抛出异常）。
 
   说明：

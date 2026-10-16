@@ -6,8 +6,11 @@ Usage: python3 bmc/event_010_submit_event_negative.py -i <bmc_ip> -u <username> 
 
 测试内容：
   模拟测试事件上报（反向）
-  POST /redfish/v1/EventService/Actions/EventService.SubmitTestEvent
+  POST EventService.SubmitTestEvent（URI 由 SDK 从 EventService.Actions 动态获取）
   使用非法参数，验证 BMC 正确拒绝请求（client.post() 抛出 RedfishException）。
+
+  2026/10/16: SDK 1.3.0 适配 - SubmitTestEvent target 改由 EventService.Actions
+  元数据动态发现，不再硬编码（issue/8）
 
   反向场景：
   1. 非法 EventType 值（"InvalidEventType_XHS_TEST"）→ 期望 RedfishException（4xx）
@@ -33,8 +36,6 @@ from func.bmc_event_test_base import BmcEventTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-
-SUBMIT_URI = "/redfish/v1/EventService/Actions/EventService.SubmitTestEvent"
 
 NEGATIVE_CASES = [
     {
@@ -67,10 +68,18 @@ class Event010SubmitEventNegative(BmcEventTestBase):
 
         findings = []
         try:
+            # SubmitTestEvent target 由 EventService.Actions 元数据动态发现
+            actions = self.client.get_event_service().actions or {}
+            submit_action = actions.get("#EventService.SubmitTestEvent", {})
+            submit_uri = submit_action.get("target", "") if isinstance(submit_action, dict) else ""
+            if not submit_uri:
+                raise RedfishException("EventService 响应中无 #EventService.SubmitTestEvent target")
+            self.log.info(f"  SubmitTestEvent target（SDK 发现）：{submit_uri}")
+
             for case in NEGATIVE_CASES:
                 self.log.info(f"  场景：{case['desc']}")
                 try:
-                    resp = self.client.post(SUBMIT_URI, case["body"])
+                    resp = self.client.post(submit_uri, case["body"])
                     # 未抛异常 = BMC 接受了非法请求，这是 FAIL
                     findings.append({"item": f"[反向] {case['desc']} → 应拒绝（抛 RedfishException）",
                                      "result": "FAIL",

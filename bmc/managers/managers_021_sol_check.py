@@ -2,9 +2,10 @@
 """
 Author: Fengmian
 Date: 2026/05/11
-Usage: python3 bmc/managers_017_vnc_check.py -i <bmc_ip> -u <username> -p <password>
+Usage: python3 bmc/managers_021_sol_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
-2026/05/11: 新增，BMC VNC 服务配置检查，验证 SessionMode/SessionTimeoutMinutes/SSLEncryptionEnabled/MaximumNumberOfSessions
+2026/05/11: 新增，BMC SOL 串口源配置检查，验证 SerialSource 和 Parameters.AllowableValues
+2026/10/16: SDK 1.3.0 适配 - 改用 get_sol_source() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,26 +20,22 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-VNC_SERVICE_URI = "/redfish/v1/Managers/1/VncService"
 
-VALID_SESSION_MODES = ["Share", "Private"]
+class Managers021SolCheck(BmcTestBase):
+    """BMC SOL 串口源配置检查
 
-class Managers017VncCheck(BmcTestBase):
-    """BMC VNC 服务配置检查
-
-    用例编号：Redfish_Managers_017
+    用例编号：Redfish_Managers_021
     测试内容：
-    - GET /redfish/v1/Managers/1/VncService 接口可达
-    - SessionMode 存在且在 ["Share", "Private"] 中
-    - SessionTimeoutMinutes 存在且 >0
-    - SSLEncryptionEnabled 存在且为 bool
-    - MaximumNumberOfSessions 存在且 >=1
+    - GET /redfish/v1/Managers/1/SOLSourceControlInfo 接口可达
+    - SerialSource 存在且非空
+    - Parameters 存在
+    - Parameters.AllowableValues 存在且为非空 list
     """
 
     def __init__(self, case: str):
         super().__init__(
             case=case,
-            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_017_vnc_check.json"),
+            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_021_sol_check.json"),
         )
     def run_test(self):
         test = CommonFunction()
@@ -46,7 +43,7 @@ class Managers017VncCheck(BmcTestBase):
         test.print_log("INFO", "测试开始")
 
         checks = []
-        vnc_info = {}
+        sol_info = {}
         final = "FAIL"
 
         try:
@@ -56,50 +53,40 @@ class Managers017VncCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET VncService 接口
-            test.print_log("INFO", "=== 步骤1: 查询 VncService 配置 ===")
-            # [SDK-GAP] get_raw(VNC_SERVICE_URI) 获取 VncService 配置：
-            #   VncService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/VncService')："
-                           "VncService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            vnc_data = self.client.get_raw(VNC_SERVICE_URI)
-            test.print_log("INFO", "VncService 接口查询成功")
-            checks.append(("VncService 接口查询成功", True))
+            # 1. GET SOLSourceControlInfo 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            test.print_log("INFO", "=== 步骤1: 查询 SOLSourceControlInfo 配置 ===")
+            sol_data = self.client.get_sol_source()
+            test.print_log("INFO", "SOLSourceControlInfo 接口查询成功")
+            checks.append(("SOLSourceControlInfo 接口查询成功", True))
 
-            # 2. SessionMode 存在且在 ["Share", "Private"] 中
-            session_mode = vnc_data.get("SessionMode")
-            session_mode_ok = session_mode in VALID_SESSION_MODES
+            # 2. SerialSource 存在且非空（OEM 扩展字段，经 extra 保留可属性访问）
+            serial_source = getattr(sol_data, "SerialSource", None)
+            serial_source_ok = isinstance(serial_source, str) and len(serial_source.strip()) > 0
             test.print_log("INFO",
-                f"SessionMode: {'✓' if session_mode_ok else '✗'} {session_mode!r} "
-                f"（期望：{VALID_SESSION_MODES}）")
-            checks.append(("SessionMode 存在且在有效枚举中", session_mode_ok))
+                f"SerialSource: {'✓' if serial_source_ok else '✗'} {serial_source!r}")
+            checks.append(("SerialSource 存在且非空", serial_source_ok))
 
-            # 3. SessionTimeoutMinutes 存在且 >0
-            session_timeout = vnc_data.get("SessionTimeoutMinutes")
-            timeout_ok = isinstance(session_timeout, (int, float)) and session_timeout > 0
+            # 3. Parameters 存在（OEM 扩展字段）
+            parameters = getattr(sol_data, "Parameters", None)
+            params_ok = isinstance(parameters, dict)
             test.print_log("INFO",
-                f"SessionTimeoutMinutes: {'✓' if timeout_ok else '✗'} {session_timeout!r}")
-            checks.append(("SessionTimeoutMinutes 存在且 >0", timeout_ok))
+                f"Parameters: {'✓ 存在且为 dict' if params_ok else '✗ 缺失或类型不对'}")
+            checks.append(("Parameters 存在", params_ok))
 
-            # 4. SSLEncryptionEnabled 存在且为 bool
-            ssl_enabled = vnc_data.get("SSLEncryptionEnabled")
-            ssl_ok = isinstance(ssl_enabled, bool)
+            # 4. Parameters.AllowableValues 存在且为非空 list
+            allowable_values = None
+            allowable_ok = False
+            if params_ok:
+                allowable_values = parameters.get("AllowableValues")
+                allowable_ok = isinstance(allowable_values, list) and len(allowable_values) > 0
             test.print_log("INFO",
-                f"SSLEncryptionEnabled: {'✓' if ssl_ok else '✗'} {ssl_enabled!r}")
-            checks.append(("SSLEncryptionEnabled 存在且为 bool", ssl_ok))
-
-            # 5. MaximumNumberOfSessions 存在且 >=1
-            max_sessions = vnc_data.get("MaximumNumberOfSessions")
-            max_ok = isinstance(max_sessions, int) and max_sessions >= 1
-            test.print_log("INFO",
-                f"MaximumNumberOfSessions: {'✓' if max_ok else '✗'} {max_sessions!r}")
-            checks.append(("MaximumNumberOfSessions 存在且 >=1", max_ok))
+                f"Parameters.AllowableValues: {'✓ 非空 list' if allowable_ok else '✗ 缺失/空/类型不对'} "
+                f"（值：{allowable_values!r}）")
+            checks.append(("Parameters.AllowableValues 存在且为非空 list", allowable_ok))
 
             # 记录详细信息
-            vnc_info["SessionMode"] = session_mode
-            vnc_info["SessionTimeoutMinutes"] = session_timeout
-            vnc_info["SSLEncryptionEnabled"] = ssl_enabled
-            vnc_info["MaximumNumberOfSessions"] = max_sessions
+            sol_info["SerialSource"] = serial_source
+            sol_info["AllowableValues"] = allowable_values
 
             final = "PASS" if all(r for _, r in checks) else "FAIL"
 
@@ -118,7 +105,7 @@ class Managers017VncCheck(BmcTestBase):
                     pass
 
         # 结果写入
-        for field_name, field_val in vnc_info.items():
+        for field_name, field_val in sol_info.items():
             test.add_key_value_to_json(self.result_json_path, "detail.cycle",
                                        value={"metrics": field_name, "value": field_val})
         for label, passed in checks:
@@ -136,7 +123,7 @@ if __name__ == '__main__':
     exit_code = 0
     test_name = None
     try:
-        test_name = Managers017VncCheck("Managers017VncCheck")
+        test_name = Managers021SolCheck("Managers021SolCheck")
         test_name.run_test()
         if test_name.command_check_result in ["FINISH", "PASS"]:
             exit_code = 0

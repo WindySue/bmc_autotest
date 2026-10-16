@@ -388,22 +388,22 @@ Managers资源主要用来管理BMC自身的功能。
 |  managers_009_timezone_test.py                    | 时区设置功能测试（DateTimeLocalOffset）     | Redfish_Managers_009    | get_raw()⚠️ [SDK-GAP]（Manager 模型无 DateTimeLocalOffset） | ✅ |
 |  managers_026_default_config_check.py             | BMC 默认配置合规检查（IPv4/IPv6/电源冗余/错峰上电/启动项） | Redfish_Managers_026 | get_raw()⚠️ [SDK-GAP]（OEM/pydantic bug/Redundancy 子对象） | ✅ |
 | **以下脚本依赖 OEM 扩展路径，暂不执行（文件名前缀 `_`）** | | | | |
-|  _managers_008_ntp_test.py                        | NTP 配置功能测试（OEM 接口）               | Redfish_Managers_008    | get_raw()⚠️ [SDK-GAP]（OEM NtpService 路径）         | ⏸ |
-|  _managers_010_syslog_test.py                     | Syslog 配置功能测试                      | Redfish_Managers_010    | get_raw()⚠️ [SDK-GAP]（OEM SyslogService 路径）      | ⏸ |
-|  _managers_011_snmp_test.py                       | SNMP 配置结构只读验证                     | Redfish_Managers_011    | get_raw()⚠️ [SDK-GAP]（OEM SnmpService 路径）        | ⏸ |
-|  _managers_012_kvm_test.py                        | KVM 功能测试（SessionTimeout 设置）        | Redfish_Managers_012    | get_raw()⚠️ [SDK-GAP]（OEM KvmService 路径）         | ⏸ |
-|  _managers_013_lldp_test.py                       | LLDP 设置功能测试（LldpEnabled 启用/禁用）    | Redfish_Managers_013    | get_raw()⚠️ [SDK-GAP]（OEM LldpService 路径）        | ⏸ |
-|  _managers_015_power_restore_policy_test.py       | 通电开机策略功能测试（ZTE OEM 路径）           | Redfish_Managers_015    | get_raw()⚠️ [SDK-GAP]（OEM PowerOnStrategy）        | ⏸ |
-|  _managers_016_dns_check.py                       | DNS 服务配置只读验证                      | Redfish_Managers_016    | get_raw()⚠️ [SDK-GAP]（OEM DnsService 路径）         | ⏸ |
-|  _managers_017_vnc_check.py                       | VNC 服务配置只读验证                      | Redfish_Managers_017    | get_raw()⚠️ [SDK-GAP]（OEM VncService 路径）         | ⏸ |
-|  _managers_018_firewall_check.py                  | 防火墙规则只读验证（ActiveStrategy/Rules）   | Redfish_Managers_018    | get_raw()⚠️ [SDK-GAP]（OEM FirewallRules 路径）      | ⏸ |
-|  _managers_019_ssl_cert_check.py                  | SSL 证书信息只读验证（Issuer/KeyLength≥2048）| Redfish_Managers_019    | get_raw()⚠️ [SDK-GAP]（OEM HttpsCert 路径）          | ⏸ |
-|  _managers_020_virtual_media_check.py             | 虚拟媒体挂载状态只读验证（Members 逐一展开）    | Redfish_Managers_020    | get_raw()⚠️ [SDK-GAP]（OEM VirtualMedia 路径）       | ⏸ |
-|  _managers_021_sol_check.py                       | SOL 串口配置只读验证（SerialSource/AllowableValues）| Redfish_Managers_021 | get_raw()⚠️ [SDK-GAP]（OEM SOLSourceControlInfo 路径） | ⏸ |
-|  _managers_022_vnc_config_test.py                 | VNC 服务配置读写测试（SessionMode/Timeout，测后恢复）| Redfish_Managers_022 | get_raw()⚠️ [SDK-GAP]（OEM VncService 路径）        | ⏸ |
-|  _managers_023_sol_log_test.py                    | SOL 串口日志采集测试（ipmitool sol activate，采集 30s）| Redfish_Managers_023 | get_raw()⚠️ [SDK-GAP]（OEM SOLSourceControlInfo 路径） | ⏸ |
-|  _managers_024_snmp_trap_test.py                  | SNMP Trap 测试告警触发（无 TrapServer 时跳过）| Redfish_Managers_024    | get_raw()⚠️ [SDK-GAP]（OEM SnmpService 路径）        | ⏸ |
-|  _managers_025_syslog_test.py                     | Syslog 测试告警触发（无 Server 时跳过）       | Redfish_Managers_025    | get_raw()⚠️ [SDK-GAP]（OEM SyslogService 路径）      | ⏸ |
+|  managers_008_ntp_test.py                        | NTP 配置功能测试（OEM 接口）               | Redfish_Managers_008    | get_raw()⚠️ [SDK-GAP]（OEM NtpService 路径）         | ⏸ |
+|  managers_010_syslog_test.py                     | Syslog 配置功能测试                      | Redfish_Managers_010    | get_raw()⚠️ [SDK-GAP]（OEM SyslogService 路径）      | ⏸ |
+|  managers_011_snmp_test.py                       | SNMP 配置结构只读验证                     | Redfish_Managers_011    | get_raw()⚠️ [SDK-GAP]（OEM SnmpService 路径）        | ⏸ |
+|  managers_012_kvm_test.py                        | KVM 功能测试（SessionTimeout 设置）        | Redfish_Managers_012    | get_raw()⚠️ [SDK-GAP]（OEM KvmService 路径）         | ⏸ |
+|  managers_013_lldp_test.py                       | LLDP 设置功能测试（LldpEnabled 启用/禁用）    | Redfish_Managers_013    | get_raw()⚠️ [SDK-GAP]（OEM LldpService 路径）        | ⏸ |
+|  managers_015_power_restore_policy_test.py       | 通电开机策略功能测试（ZTE OEM 路径）           | Redfish_Managers_015    | get_raw()⚠️ [SDK-GAP]（OEM PowerOnStrategy）        | ⏸ |
+|  managers_016_dns_check.py                       | DNS 服务配置只读验证                      | Redfish_Managers_016    | get_raw()⚠️ [SDK-GAP]（OEM DnsService 路径）         | ⏸ |
+|  managers_017_vnc_check.py                       | VNC 服务配置只读验证                      | Redfish_Managers_017    | get_raw()⚠️ [SDK-GAP]（OEM VncService 路径）         | ⏸ |
+|  managers_018_firewall_check.py                  | 防火墙规则只读验证（ActiveStrategy/Rules）   | Redfish_Managers_018    | get_raw()⚠️ [SDK-GAP]（OEM FirewallRules 路径）      | ⏸ |
+|  managers_019_ssl_cert_check.py                  | SSL 证书信息只读验证（Issuer/KeyLength≥2048）| Redfish_Managers_019    | get_raw()⚠️ [SDK-GAP]（OEM HttpsCert 路径）          | ⏸ |
+|  managers_020_virtual_media_check.py             | 虚拟媒体挂载状态只读验证（Members 逐一展开）    | Redfish_Managers_020    | get_raw()⚠️ [SDK-GAP]（OEM VirtualMedia 路径）       | ⏸ |
+|  managers_021_sol_check.py                       | SOL 串口配置只读验证（SerialSource/AllowableValues）| Redfish_Managers_021 | get_raw()⚠️ [SDK-GAP]（OEM SOLSourceControlInfo 路径） | ⏸ |
+|  managers_022_vnc_config_test.py                 | VNC 服务配置读写测试（SessionMode/Timeout，测后恢复）| Redfish_Managers_022 | get_raw()⚠️ [SDK-GAP]（OEM VncService 路径）        | ⏸ |
+|  managers_023_sol_log_test.py                    | SOL 串口日志采集测试（ipmitool sol activate，采集 30s）| Redfish_Managers_023 | get_raw()⚠️ [SDK-GAP]（OEM SOLSourceControlInfo 路径） | ⏸ |
+|  managers_024_snmp_trap_test.py                  | SNMP Trap 测试告警触发（无 TrapServer 时跳过）| Redfish_Managers_024    | get_raw()⚠️ [SDK-GAP]（OEM SnmpService 路径）        | ⏸ |
+|  managers_025_syslog_test.py                     | Syslog 测试告警触发（无 Server 时跳过）       | Redfish_Managers_025    | get_raw()⚠️ [SDK-GAP]（OEM SyslogService 路径）      | ⏸ |
 
 
 ## **UpdateService资源（续）**
@@ -510,23 +510,23 @@ Web 脚本通过 Redfish Session（X-Auth-Token）模拟 Web 浏览器行为，�
 
 | 涉及脚本 | OEM URI | 期望 SDK 接口 |
 |---------|---------|-------------|
-| `managers/_managers_003_ethernet_interfaces_check.py` | `/redfish/v1/Managers/1/EthernetInterfaces`（pydantic bug） | SDK 修复 `EthernetInterface.ip_v4_addresses` 解析后替换 |
-| `managers/_managers_008_ntp_test.py` | `/redfish/v1/Managers/1/NtpService` | `get_ntp_service()` 或类似封装 |
-| `managers/_managers_010_syslog_test.py` | `/redfish/v1/Managers/1/SyslogService` | `get_syslog_service()` |
-| `managers/_managers_011_snmp_test.py` | `/redfish/v1/Managers/1/SnmpService` | `get_snmp_service()` |
-| `managers/_managers_012_kvm_test.py` | `/redfish/v1/Managers/1/KvmService` | `get_kvm_service()` |
-| `managers/_managers_013_lldp_test.py` | `/redfish/v1/Managers/1/LldpService` | `get_lldp_service()` |
-| `managers/_managers_015_power_restore_policy_test.py` | `/redfish/v1/Systems/1` OEM.Public.PowerOnStrategy | `get_system().oem.power_on_strategy` |
-| `managers/_managers_016_dns_check.py` | `/redfish/v1/Managers/1/DnsService` | `get_dns_service()` |
-| `managers/_managers_017_vnc_check.py` | `/redfish/v1/Managers/1/VncService` | `get_vnc_service()` |
-| `managers/_managers_018_firewall_check.py` | `/redfish/v1/Managers/1/SecurityService/FirewallRules` | `get_firewall_rules()` |
-| `managers/_managers_019_ssl_cert_check.py` | `/redfish/v1/Managers/1/SecurityService/HttpsCert` | `get_https_cert()` |
-| `managers/_managers_020_virtual_media_check.py` | `/redfish/v1/Managers/1/VirtualMedia` | `get_virtual_media()` |
-| `managers/_managers_021_sol_check.py` | `/redfish/v1/Managers/1/SOLSourceControlInfo` | `get_sol_source_control_info()` |
-| `managers/_managers_022_vnc_config_test.py` | `/redfish/v1/Managers/1/VncService` | `get_vnc_service()` |
-| `managers/_managers_023_sol_log_test.py` | `/redfish/v1/Managers/1/SOLSourceControlInfo` | `get_sol_source_control_info()` |
-| `managers/_managers_024_snmp_trap_test.py` | `/redfish/v1/Managers/1/SnmpService` | `get_snmp_service()` |
-| `managers/_managers_025_syslog_test.py` | `/redfish/v1/Managers/1/SyslogService` | `get_syslog_service()` |
+| `managers/managers_003_ethernet_interfaces_check.py` | `/redfish/v1/Managers/1/EthernetInterfaces`（pydantic bug） | SDK 修复 `EthernetInterface.ip_v4_addresses` 解析后替换 |
+| `managers/managers_008_ntp_test.py` | `/redfish/v1/Managers/1/NtpService` | `get_ntp_service()` 或类似封装 |
+| `managers/managers_010_syslog_test.py` | `/redfish/v1/Managers/1/SyslogService` | `get_syslog_service()` |
+| `managers/managers_011_snmp_test.py` | `/redfish/v1/Managers/1/SnmpService` | `get_snmp_service()` |
+| `managers/managers_012_kvm_test.py` | `/redfish/v1/Managers/1/KvmService` | `get_kvm_service()` |
+| `managers/managers_013_lldp_test.py` | `/redfish/v1/Managers/1/LldpService` | `get_lldp_service()` |
+| `managers/managers_015_power_restore_policy_test.py` | `/redfish/v1/Systems/1` OEM.Public.PowerOnStrategy | `get_system().oem.power_on_strategy` |
+| `managers/managers_016_dns_check.py` | `/redfish/v1/Managers/1/DnsService` | `get_dns_service()` |
+| `managers/managers_017_vnc_check.py` | `/redfish/v1/Managers/1/VncService` | `get_vnc_service()` |
+| `managers/managers_018_firewall_check.py` | `/redfish/v1/Managers/1/SecurityService/FirewallRules` | `get_firewall_rules()` |
+| `managers/managers_019_ssl_cert_check.py` | `/redfish/v1/Managers/1/SecurityService/HttpsCert` | `get_https_cert()` |
+| `managers/managers_020_virtual_media_check.py` | `/redfish/v1/Managers/1/VirtualMedia` | `get_virtual_media()` |
+| `managers/managers_021_sol_check.py` | `/redfish/v1/Managers/1/SOLSourceControlInfo` | `get_sol_source_control_info()` |
+| `managers/managers_022_vnc_config_test.py` | `/redfish/v1/Managers/1/VncService` | `get_vnc_service()` |
+| `managers/managers_023_sol_log_test.py` | `/redfish/v1/Managers/1/SOLSourceControlInfo` | `get_sol_source_control_info()` |
+| `managers/managers_024_snmp_trap_test.py` | `/redfish/v1/Managers/1/SnmpService` | `get_snmp_service()` |
+| `managers/managers_025_syslog_test.py` | `/redfish/v1/Managers/1/SyslogService` | `get_syslog_service()` |
 
 > 以下 managers suite 脚本有 `[SDK-GAP]` 但仍纳入测试（get_raw 已加 WARNING 日志）：
 

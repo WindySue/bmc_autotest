@@ -2,9 +2,10 @@
 """
 Author: Fengmian
 Date: 2026/05/11
-Usage: python3 bmc/managers_021_sol_check.py -i <bmc_ip> -u <username> -p <password>
+Usage: python3 bmc/managers_016_dns_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
-2026/05/11: 新增，BMC SOL 串口源配置检查，验证 SerialSource 和 Parameters.AllowableValues
+2026/05/11: 新增，BMC DNS 服务配置检查，验证 HostNameConfig 和 DnsIpConfig 字段
+2026/10/16: SDK 1.3.0 适配 - 改用 get_dns_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,23 +20,22 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SOL_SOURCE_URI = "/redfish/v1/Managers/1/SOLSourceControlInfo"
 
-class Managers021SolCheck(BmcTestBase):
-    """BMC SOL 串口源配置检查
+class Managers016DnsCheck(BmcTestBase):
+    """BMC DNS 服务配置检查
 
-    用例编号：Redfish_Managers_021
+    用例编号：Redfish_Managers_016
     测试内容：
-    - GET /redfish/v1/Managers/1/SOLSourceControlInfo 接口可达
-    - SerialSource 存在且非空
-    - Parameters 存在
-    - Parameters.AllowableValues 存在且为非空 list
+    - GET /redfish/v1/Managers/1/DnsService 接口可达
+    - HostNameConfig 字段存在且为 dict
+    - DnsIpConfig 字段存在且为 dict
+    - DnsIpConfig.NameServers 存在（list，可为空）
     """
 
     def __init__(self, case: str):
         super().__init__(
             case=case,
-            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_021_sol_check.json"),
+            config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_016_dns_check.json"),
         )
     def run_test(self):
         test = CommonFunction()
@@ -43,8 +43,10 @@ class Managers021SolCheck(BmcTestBase):
         test.print_log("INFO", "测试开始")
 
         checks = []
-        sol_info = {}
+        dns_info = {}
         final = "FAIL"
+        hostname_config = None
+        dns_ip_config = None
 
         try:
             self.client = RedfishClient(
@@ -53,44 +55,38 @@ class Managers021SolCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET SOLSourceControlInfo 接口
-            test.print_log("INFO", "=== 步骤1: 查询 SOLSourceControlInfo 配置 ===")
-            # [SDK-GAP] get_raw(SOL_SOURCE_URI) 获取 SOLSourceControlInfo 配置：
-            #   SOLSourceControlInfo 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SOLSourceControlInfo')："
-                           "SOLSourceControlInfo 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            sol_data = self.client.get_raw(SOL_SOURCE_URI)
-            test.print_log("INFO", "SOLSourceControlInfo 接口查询成功")
-            checks.append(("SOLSourceControlInfo 接口查询成功", True))
+            # 1. GET DnsService 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            test.print_log("INFO", "=== 步骤1: 查询 DnsService 配置 ===")
+            dns_data = self.client.get_dns_service()
+            test.print_log("INFO", "DnsService 接口查询成功")
+            checks.append(("DnsService 接口查询成功", True))
 
-            # 2. SerialSource 存在且非空
-            serial_source = sol_data.get("SerialSource")
-            serial_source_ok = isinstance(serial_source, str) and len(serial_source.strip()) > 0
-            test.print_log("INFO",
-                f"SerialSource: {'✓' if serial_source_ok else '✗'} {serial_source!r}")
-            checks.append(("SerialSource 存在且非空", serial_source_ok))
+            # 2. HostNameConfig 字段存在且为 dict（OEM 扩展字段，经 extra 保留可属性访问）
+            hostname_config = getattr(dns_data, "HostNameConfig", None)
+            hostname_ok = isinstance(hostname_config, dict)
+            test.print_log("INFO", f"HostNameConfig: {'✓ 存在且为 dict' if hostname_ok else '✗ 缺失或类型不对'}")
+            checks.append(("HostNameConfig 存在且为 dict", hostname_ok))
 
-            # 3. Parameters 存在
-            parameters = sol_data.get("Parameters")
-            params_ok = isinstance(parameters, dict)
-            test.print_log("INFO",
-                f"Parameters: {'✓ 存在且为 dict' if params_ok else '✗ 缺失或类型不对'}")
-            checks.append(("Parameters 存在", params_ok))
+            # 3. DnsIpConfig 字段存在且为 dict（OEM 扩展字段）
+            dns_ip_config = getattr(dns_data, "DnsIpConfig", None)
+            dns_ip_ok = isinstance(dns_ip_config, dict)
+            test.print_log("INFO", f"DnsIpConfig: {'✓ 存在且为 dict' if dns_ip_ok else '✗ 缺失或类型不对'}")
+            checks.append(("DnsIpConfig 存在且为 dict", dns_ip_ok))
 
-            # 4. Parameters.AllowableValues 存在且为非空 list
-            allowable_values = None
-            allowable_ok = False
-            if params_ok:
-                allowable_values = parameters.get("AllowableValues")
-                allowable_ok = isinstance(allowable_values, list) and len(allowable_values) > 0
+            # 4. DnsIpConfig.NameServers 存在（list，可为空）
+            nameservers_ok = False
+            nameservers_val = None
+            if isinstance(dns_ip_config, dict):
+                nameservers_val = dns_ip_config.get("NameServers")
+                nameservers_ok = isinstance(nameservers_val, list)
             test.print_log("INFO",
-                f"Parameters.AllowableValues: {'✓ 非空 list' if allowable_ok else '✗ 缺失/空/类型不对'} "
-                f"（值：{allowable_values!r}）")
-            checks.append(("Parameters.AllowableValues 存在且为非空 list", allowable_ok))
+                f"DnsIpConfig.NameServers: {'✓ 存在且为 list' if nameservers_ok else '✗ 缺失或类型不对'} "
+                f"（值：{nameservers_val}）")
+            checks.append(("DnsIpConfig.NameServers 存在（list）", nameservers_ok))
 
             # 记录详细信息
-            sol_info["SerialSource"] = serial_source
-            sol_info["AllowableValues"] = allowable_values
+            dns_info["HostNameConfig"] = hostname_config
+            dns_info["DnsIpConfig"] = dns_ip_config
 
             final = "PASS" if all(r for _, r in checks) else "FAIL"
 
@@ -109,9 +105,10 @@ class Managers021SolCheck(BmcTestBase):
                     pass
 
         # 结果写入
-        for field_name, field_val in sol_info.items():
-            test.add_key_value_to_json(self.result_json_path, "detail.cycle",
-                                       value={"metrics": field_name, "value": field_val})
+        test.add_key_value_to_json(self.result_json_path, "detail.cycle",
+                                   value={"metrics": "HostNameConfig", "value": hostname_config})
+        test.add_key_value_to_json(self.result_json_path, "detail.cycle",
+                                   value={"metrics": "DnsIpConfig", "value": dns_ip_config})
         for label, passed in checks:
             test.add_key_value_to_json(self.result_json_path, "detail.cycle",
                                        value={"metrics": label, "value": "PASS" if passed else "FAIL"})
@@ -127,7 +124,7 @@ if __name__ == '__main__':
     exit_code = 0
     test_name = None
     try:
-        test_name = Managers021SolCheck("Managers021SolCheck")
+        test_name = Managers016DnsCheck("Managers016DnsCheck")
         test_name.run_test()
         if test_name.command_check_result in ["FINISH", "PASS"]:
             exit_code = 0

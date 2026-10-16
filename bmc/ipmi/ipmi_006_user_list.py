@@ -5,7 +5,7 @@ IPMI 带外查询用户列表（RDSV_BMC_079）
 校验：
   - 用户 slot 数 >= MinUserSlots（默认8）
   - 至少各存在一个 ADMINISTRATOR / OPERATOR / USER 权限的槽位配置能力
-    （ZTE 实测：ID1~3 已有 Admin，权限上限覆盖即可）
+    （实测：ID1~3 已有 Admin，权限上限覆盖即可）
 
 Usage: python3 bmc/ipmi_user_001.py -i <bmc_ip> -u <user> -p <pass>
 """

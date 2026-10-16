@@ -2,6 +2,8 @@
 """
 Author: Fengmian
 Date: 2026/05/14
+Update:
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 Usage: python3 bmc/protocol_001_dmtf_compliance.py -i <bmc_ip> -u <username> -p <password>
 
 测试内容：DMTF Redfish 协议合规性检查（RDSV_BMC_147）
@@ -62,7 +64,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
     CONF_DIR      = 'protocol'
 
     def __init__(self) -> None:
-        # 运行时属性预声明（_load_extra_config 中赋值）
+        # 运行时属性预声明（_load_extra_config / _discover_uris 中赋值）
         self.findings             = []
         self._session_create_sc   = -1
         self._session_location    = ''
@@ -70,11 +72,14 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         self._session_delete_sc   = -1
         self.BASE_URL      = ''
         self.timeout       = 30
-        self.chassis_uri   = '/redfish/v1/Chassis/1'
-        self.systems_uri   = '/redfish/v1/Systems/1'
-        self.power_uri     = '/redfish/v1/Chassis/1/Power'
-        self.sessions_uri  = '/redfish/v1/SessionService/Sessions'
-        self.managers_uri  = '/redfish/v1/Managers/1'
+        # 资源 URI 一律运行时从 ServiceRoot 动态发现（conf 显式配置可覆盖）
+        self.chassis_uri   = ''
+        self.systems_uri   = ''
+        self.power_uri     = ''
+        self.sessions_uri  = ''
+        self.managers_uri  = ''
+        self.accounts_uri  = ''
+        self.event_svc_uri = ''
         self._ctx          = None
         super().__init__()
 
@@ -84,15 +89,91 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
     # 初始化
     # ─────────────────────────────────────────────────────
     def _load_extra_config(self, conf: dict) -> None:
-        """从配置文件读取协议测试专属参数并初始化 HTTP 上下文。"""
+        """从配置文件读取协议测试专属参数并初始化 HTTP 上下文。
+
+        URI 类配置项仅在显式配置时覆盖（默认全部运行时动态发现）。
+        """
         self.timeout      = int(conf.get("TimeoutSeconds", 30))
-        self.chassis_uri  = conf.get("ChassisUri",  "/redfish/v1/Chassis/1")
-        self.systems_uri  = conf.get("SystemsUri",  "/redfish/v1/Systems/1")
-        self.power_uri    = conf.get("PowerUri",    "/redfish/v1/Chassis/1/Power")
-        self.sessions_uri = conf.get("SessionsUri", "/redfish/v1/SessionService/Sessions")
-        self.managers_uri = conf.get("ManagersUri", "/redfish/v1/Managers/1")
+        self.chassis_uri  = conf.get("ChassisUri")  or ''
+        self.systems_uri  = conf.get("SystemsUri")  or ''
+        self.power_uri    = conf.get("PowerUri")    or ''
+        self.sessions_uri = conf.get("SessionsUri") or ''
+        self.managers_uri = conf.get("ManagersUri") or ''
         self.BASE_URL     = f"https://{self.BMC_IP}"
         self._build_ctx()
+
+    def _discover_uris(self) -> None:
+        """从 ServiceRoot 动态发现资源 URI。
+
+        /redfish/v1 是 DMTF 唯一强约定入口，其余 URI 全部从 root 的
+        Links / 顶层服务链接 / 集合 Members 逐级发现，不硬编码任何资源路径。
+        conf 显式配置的 URI 优先于动态发现结果。
+        """
+        sc, root, _ = self._request(
+            "GET", "/redfish/v1", basic_auth=(self.USERNAME, self.PASSWORD)
+        )
+        if sc != 200 or not isinstance(root, dict):
+            self.log.warning(f"ServiceRoot 发现失败（HTTP {sc}），URI 保持为空，相关检查将跳过")
+            return
+        links = root.get("Links", {}) or {}
+
+        def _link(key: str) -> str:
+            # 集合 URI 优先取 root 顶层服务链接（Systems/Chassis/Managers 等），
+            # Links 中不存在时回落（Links.Sessions 等仅在 Links 中）
+            top = (root.get(key) or {}).get("@odata.id", "")
+            return top or (links.get(key) or {}).get("@odata.id", "")
+
+        def _first_member(col_uri: str) -> str:
+            """GET 集合，返回第一个成员的 @odata.id"""
+            if not col_uri:
+                return ""
+            _, body, _ = self._request(
+                "GET", col_uri, basic_auth=(self.USERNAME, self.PASSWORD)
+            )
+            members = (body.get("Members") or []) if isinstance(body, dict) else []
+            if members and isinstance(members[0], dict):
+                return members[0].get("@odata.id", "")
+            return ""
+
+        # 集合 URI（root.Links 指向集合本身）
+        systems_col = _link("Systems")
+        chassis_col = _link("Chassis")
+        managers_col = _link("Managers")
+
+        # 成员 URI（集合第一个成员，适配 /Systems/Self 等厂商命名）
+        if not self.systems_uri:
+            self.systems_uri = _first_member(systems_col)
+        if not self.chassis_uri:
+            self.chassis_uri = _first_member(chassis_col)
+        if not self.managers_uri:
+            self.managers_uri = _first_member(managers_col)
+        if not self.sessions_uri:
+            self.sessions_uri = _link("Sessions")
+
+        # Power 子资源从 Chassis 的 Power 链接发现
+        if not self.power_uri and self.chassis_uri:
+            _, ch_body, _ = self._request(
+                "GET", self.chassis_uri, basic_auth=(self.USERNAME, self.PASSWORD)
+            )
+            if isinstance(ch_body, dict):
+                self.power_uri = (ch_body.get("Power") or {}).get("@odata.id", "")
+
+        # AccountService/Accounts、EventService 从 root 顶层服务链接发现
+        acct_uri = (root.get("AccountService") or {}).get("@odata.id", "")
+        if acct_uri and not self.accounts_uri:
+            _, acct_body, _ = self._request(
+                "GET", acct_uri, basic_auth=(self.USERNAME, self.PASSWORD)
+            )
+            self.accounts_uri = (acct_body.get("Accounts") or {}).get("@odata.id", "") \
+                if isinstance(acct_body, dict) else ""
+        if not self.event_svc_uri:
+            self.event_svc_uri = (root.get("EventService") or {}).get("@odata.id", "")
+
+        self.log.info(
+            f"URI 动态发现完成：Systems={self.systems_uri}, Chassis={self.chassis_uri}, "
+            f"Managers={self.managers_uri}, Sessions={self.sessions_uri}, "
+            f"Power={self.power_uri}, Accounts={self.accounts_uri}"
+        )
 
     def _build_ctx(self):
         self._ctx = ssl.create_default_context()
@@ -181,6 +262,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         self.log.info("=" * 60)
         self.log.info("【1】Redfish Version 检查")
 
+        # /redfish/v1 是 DMTF 强约定的 ServiceRoot 入口（唯一允许的固定路径）
         sc, body, hdrs = self._request(
             "GET", "/redfish/v1",
             basic_auth=(self.USERNAME, self.PASSWORD)
@@ -392,7 +474,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         _ro_pass = "TestPwd@2024"
         _ro_uid  = None
         sc_create_ro, body_create_ro, hdrs_create_ro = self._request(
-            "POST", "/redfish/v1/AccountService/Accounts",
+            "POST", self.accounts_uri,
             body={"UserName": _ro_user, "Password": _ro_pass, "RoleId": "ReadOnly"},
             token=token
         )
@@ -428,20 +510,21 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                          LEVEL_WARNING, False,
                          f"创建测试账号 HTTP {sc_create_ro}（{body_create_ro!r}）")
 
-        # 404
+        # 404（构造一个确定不存在的资源路径，基于动态发现的集合 URI 拼接）
         sc_404, _, _ = self._request(
-            "GET", "/redfish/v1/nonexistent_resource_xyzabc123", token=token
+            "GET", f"{self.systems_uri}/nonexistent_resource_xyzabc123", token=token
         )
         self._record("访问不存在资源 → 404", LEVEL_ERROR,
                      sc_404 == 404, f"HTTP {sc_404}")
 
-        # 405（对只读集合尝试 DELETE）
+        # 405（对只读集合尝试 DELETE；集合 URI 从成员 URI 上溯一级）
+        systems_col_uri = self.systems_uri.rsplit("/", 1)[0] if self.systems_uri else ""
         sc_405, _, hdrs_405 = self._request(
-            "DELETE", "/redfish/v1/Systems", token=token
+            "DELETE", systems_col_uri, token=token
         )
         self._record("不支持的 Method → 405", LEVEL_ERROR,
                      sc_405 == 405,
-                     f"HTTP {sc_405}（对 /Systems 集合 DELETE，期望 405）")
+                     f"HTTP {sc_405}（对 Systems 集合 DELETE，期望 405）")
 
         # 405 响应应含 Allow header（DMTF 通用）
         allow = hdrs_405.get("allow", "")
@@ -466,12 +549,12 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         #      改为验证 Accounts 重复创建场景）
         # 先读 AccountService 是否支持
         sc_acct_col, acct_col, _ = self._request(
-            "GET", "/redfish/v1/AccountService/Accounts", token=token
+            "GET", self.accounts_uri, token=token
         )
         if sc_acct_col == 200:
             # 尝试创建与现有账号同名的账号 → 期望 409
             sc_409, body_409, _ = self._request(
-                "POST", "/redfish/v1/AccountService/Accounts",
+                "POST", self.accounts_uri,
                 body={"UserName": self.USERNAME, "Password": "TestPwd@2024",
                       "RoleId": "ReadOnly"},
                 token=token
@@ -589,8 +672,14 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         else:
             # BootOrder 为空或只有 1 个元素 → 改为 NTP ServerList 数组测试（若可用）
             # Managers/1/NetworkProtocol NTP.NTPServers 通常是字符串数组
+            # NetworkProtocol URI 从 Manager 资源链接动态发现
+            _, mgr_body, _ = self._request(
+                "GET", self.managers_uri, token=token
+            )
+            np_uri = (mgr_body.get("NetworkProtocol") or {}).get("@odata.id", "") \
+                if isinstance(mgr_body, dict) else ""
             _, np_body, _ = self._request(
-                "GET", "/redfish/v1/Managers/1/NetworkProtocol", token=token
+                "GET", np_uri, token=token
             )
             ntp_servers = (np_body.get("NTP", {}).get("NTPServers") or []
                            if isinstance(np_body, dict) else [])
@@ -598,7 +687,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                 # 构造含 null 的数组 → null 位应被删除并右移
                 patch_ntp = {"NTP": {"NTPServers": [None] + ntp_servers[:1]}}
                 sc_ntp_arr, _, _ = self._request(
-                    "PATCH", "/redfish/v1/Managers/1/NetworkProtocol",
+                    "PATCH", np_uri,
                     body=patch_ntp, token=token
                 )
                 self._record("6-5 数组属性 PATCH（NTP.NTPServers 含 null）→ 200/204",
@@ -606,7 +695,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                              f"HTTP {sc_ntp_arr}（200/204=支持数组PATCH；4xx=不支持）")
                 # 恢复 NTP Servers
                 self._request(
-                    "PATCH", "/redfish/v1/Managers/1/NetworkProtocol",
+                    "PATCH", np_uri,
                     body={"NTP": {"NTPServers": ntp_servers}}, token=token
                 )
                 self.log.info("  → NTPServers 已恢复")
@@ -652,7 +741,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
         #   合法参数（EventType=StatusChange）→ 204 + 空体（7-1）
         #   非法参数（InvalidParam）         → 400 + error response（7-3）
         #   无副作用，不影响服务器业务
-        _, ev_body, _ = self._request("GET", "/redfish/v1/EventService", token=token)
+        _, ev_body, _ = self._request("GET", self.event_svc_uri, token=token)
         submit_test_uri = None
         if isinstance(ev_body, dict):
             submit_test_uri = (
@@ -701,7 +790,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                              False, f"实际 HTTP {sc_71}（期望 204 或 200）")
 
             # 7-2：若 7-1 已返回 204，则 7-2 需要另一个 Action 来验证"有响应结构"场景
-            #      ZTE 暂无返回 200+action response 的 Action，记录为 INFO（非必须）
+            #      被测 BMC 暂无返回 200+action response 的 Action，记录为 INFO（非必须）
             if sc_71 == 204:
                 self._record("7-2 POST Action 200 返回 action response（有响应结构场景）",
                              LEVEL_INFO, True,
@@ -903,8 +992,11 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                          f"@odata.context={body.get('@odata.context')!r}")
 
         # 8-2 集合含 Members@odata.count
+        # Systems 集合 URI 从 root.Links 发现（_discover_uris 已缓存 root 结构，
+        # 此处直接从 systems_uri 上溯一级）
+        systems_col_uri = self.systems_uri.rsplit("/", 1)[0] if self.systems_uri else ""
         sc_col, body_col, _ = self._request(
-            "GET", "/redfish/v1/Systems", token=token
+            "GET", systems_col_uri, token=token
         )
         if sc_col == 200 and isinstance(body_col, dict):
             self._record("集合资源含 Members@odata.count（DMTF 必填）", LEVEL_WARNING,
@@ -913,7 +1005,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
 
         # 8-3 订阅场景：EventService 完整流程（文档"同步厂商信息"明确列出）
         sc_ev, body_ev, _ = self._request(
-            "GET", "/redfish/v1/EventService", token=token
+            "GET", self.event_svc_uri, token=token
         )
         self._record("EventService 可访问（订阅场景）", LEVEL_WARNING,
                      sc_ev == 200, f"HTTP {sc_ev}")
@@ -960,7 +1052,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                     self._record(f"POST 创建订阅 → 201（实际 {sc_sub_c}）",
                                  LEVEL_WARNING, False, f"HTTP {sc_sub_c}")
 
-        # 8-4 ServiceRoot 含 Links 字段
+        # 8-4 ServiceRoot 含 Links 字段（/redfish/v1 为 DMTF 强约定入口）
         sc_root, body_root, _ = self._request(
             "GET", "/redfish/v1", basic_auth=(self.USERNAME, self.PASSWORD)
         )
@@ -992,6 +1084,9 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
     def run_test(self):
         self.log.info(f"开始：{self.TEST_NAME}（{self.TEST_NUM}）")
         self.log.info(f"BMC IP：{self.BMC_IP}")
+
+        # ── 0. 动态发现资源 URI ──
+        self._discover_uris()
 
         # ── 1. Redfish Version（无需 Session）──
         self.check_redfish_version()

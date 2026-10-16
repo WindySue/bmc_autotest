@@ -15,6 +15,7 @@ Update:
 2026/05/12: 支持 HTTP 协议（nginx）；加入自动恢复（阶段B）
 2026/06/09: 重构 — 使用 SDK 原生 wait_for_task() 替代自定义轮询；
             参数解析改为 override _add_args()，适配 BmcTestBase 统一规范
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 
 测试内容（正向 + 自动恢复）：
   阶段A 正向刷新：
@@ -66,9 +67,6 @@ REDFISH_TIMEOUT_SEC = 600    # Redfish 恢复超时
 IPMI_TIMEOUT_SEC    = 600    # IPMI 恢复超时
 POLL_INTERVAL_SEC   = 10     # 恢复检测轮询间隔
 IPMI_STABLE_WAIT    = 15     # IPMI 第一次通后的二次确认等待
-
-SIMPLE_UPDATE_TARGETS = ["/redfish/v1/Managers/1"]
-
 
 class Update002BmcFirmwareUpdate(BmcTestBase):
     """BMC 固件版本刷新功能测试（正向 + 自动恢复）
@@ -162,10 +160,8 @@ class Update002BmcFirmwareUpdate(BmcTestBase):
         """
         test.print_log("INFO", "发送 BMC Manager.Reset（ForceRestart）...")
         try:
-            self.client.post(
-                "/redfish/v1/Managers/1/Actions/Manager.Reset",
-                {"ResetType": "ForceRestart"}
-            )
+            # SDK 1.3.0 reset_manager()：Reset target 由 Manager 资源自动发现
+            self.client.reset_manager(reset_type="ForceRestart")
         except Exception as e:
             # 连接中断属正常（BMC 重启会断开连接）
             test.print_log("INFO", f"BMC Reset 已发送，连接中断属正常：{e}")
@@ -275,10 +271,12 @@ class Update002BmcFirmwareUpdate(BmcTestBase):
         checks: list[tuple[str, bool]] = []
 
         # ── 步骤1：simple_update() ──────────────────────────────────────────
+        # targets 取 Manager 资源 @odata.id（SDK 动态发现，不硬编码）
+        manager_uri = self.client.get_manager().odata_id
         su_kwargs: dict[str, Any] = {
             "image_uri":         image_uri,
             "transfer_protocol": self.PROTOCOL,
-            "targets":           SIMPLE_UPDATE_TARGETS,
+            "targets":           [manager_uri],
             "flash_item":        "BMC",
         }
         if self.PRESERVE_CONF:

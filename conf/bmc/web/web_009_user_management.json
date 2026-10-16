@@ -7,10 +7,8 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "AccountServiceUri": "/redfish/v1/AccountService",
-        "AccountsUri": "/redfish/v1/AccountService/Accounts",
         "TestUser": {
-            "UserName": "web_test_u",
+            "UserName": "webtest",
             "Password": "WebTest@2024",
             "RoleId": "Operator"
         }

@@ -7,6 +7,7 @@ Update:
 2026/05/08: 新增，BMC 端口使能/禁用功能测试，在 managers_006 查询基础上补充设置能力验证
 2026/05/08: 修复 - 移除 HTTP 测试项，禁用 HTTP 会导致 BMC Web 服务整体短暂重启（含 HTTPS），
            影响后续请求稳定性；改为只测 HTTPS/SSH/SNMP
+2026/10/16: SDK 1.3.0 适配 - PATCH URI 改取自 NetworkProtocol 资源 @odata.id（issue/8）
 """
 
 import os
@@ -20,8 +21,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-NETWORK_PROTOCOL_URI = "/redfish/v1/Managers/1/NetworkProtocol"
 
 # 可测试的协议列表（协议名, 对应 JSON key, 默认端口）
 # 注意：HTTP/HTTPS 均不在写测试列表
@@ -84,6 +83,7 @@ class Managers006bPortEnableDisable(BmcTestBase):
 
             # 1. 查询当前网络协议配置（SDK get_network_protocol()）
             np = self.client.get_network_protocol()
+            np_uri = np.odata_id
             test.print_log("INFO", "当前网络协议配置已获取")
             checks.append(("查询 NetworkProtocol 成功", True))
 
@@ -111,7 +111,7 @@ class Managers006bPortEnableDisable(BmcTestBase):
                 test.print_log("INFO", f"  禁用 {proto_name}...")
                 patch_body = {proto_key: {"ProtocolEnabled": False}}
                 try:
-                    self.client.patch(NETWORK_PROTOCOL_URI, patch_body)
+                    self.client.patch(np_uri, patch_body)
                     time.sleep(2)
                     checks.append((f"{proto_name} 禁用 PATCH 成功", True))
                 except RedfishException as e:
@@ -130,7 +130,7 @@ class Managers006bPortEnableDisable(BmcTestBase):
                 test.print_log("INFO", f"  重新启用 {proto_name}...")
                 patch_body = {proto_key: {"ProtocolEnabled": True}}
                 try:
-                    self.client.patch(NETWORK_PROTOCOL_URI, patch_body)
+                    self.client.patch(np_uri, patch_body)
                     time.sleep(2)
                     checks.append((f"{proto_name} 启用 PATCH 成功", True))
                 except RedfishException as e:
@@ -140,7 +140,7 @@ class Managers006bPortEnableDisable(BmcTestBase):
                         test.print_log("WARNING", f"  检测到 HTTP 禁用后 BMC Web 服务重启，等待恢复...")
                         if self._wait_for_bmc_recovery(test):
                             try:
-                                self.client.patch(NETWORK_PROTOCOL_URI, patch_body)
+                                self.client.patch(np_uri, patch_body)
                                 time.sleep(2)
                                 checks.append((f"{proto_name} 启用 PATCH 成功（重试）", True))
                             except RedfishException as e2:

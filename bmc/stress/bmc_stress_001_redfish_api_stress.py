@@ -7,17 +7,19 @@ Usage: python3 bmc/bmc_stress_001_redfish_api_stress.py -i <bmc_ip> -u <username
 Update:
 2026/05/11: 新增，Redfish API 稳定性压测（12h）
 2026/05/11: 更新 PASS 标准 - 失败率 = 0%（任意失败即终止）+ 平均延时 ≤ 2s
+2026/10/16: SDK 1.3.0 适配 - 压测 URI 列表改为运行时从 SDK 动态发现
+  （Systems/Managers/Chassis 集合成员 + Thermal/Power 子资源），不再硬编码（issue/8）
 
 压测策略：
   轮询若干轻量 GET 接口，记录每次请求耗时与成功/失败状态。
   压测期间每小时打印一次中间统计，结束时输出全量统计并判断 PASS/FAIL。
 
-  压测接口列表（均为只读 GET，不影响 BMC 状态）：
-    - GET /redfish/v1/Systems/1       → 系统基本信息
-    - GET /redfish/v1/Managers/1      → 管理器基本信息
-    - GET /redfish/v1/Chassis/1       → 机箱基本信息
-    - GET /redfish/v1/Chassis/1/Thermal → 温度/风扇信息
-    - GET /redfish/v1/Chassis/1/Power  → 电源信息
+  压测接口（均为只读 GET，不影响 BMC 状态，URI 全部由 SDK 动态发现）：
+    - System 基本信息（get_system）
+    - Manager 基本信息（get_manager）
+    - Chassis 基本信息（get_chassis）
+    - Thermal 温度/风扇信息（get_thermal）
+    - Power 电源信息（get_power）
 
 PASS 标准：
   - 连接失败次数 = 0（12h 内统计连接失败次数和失败率，失败次数 > 0 即 FAIL，不提前终止）
@@ -41,14 +43,8 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-# ── 压测目标接口 ──────────────────────────────────────────────────────────────
-STRESS_URIS = [
-    "/redfish/v1/Systems/1",
-    "/redfish/v1/Managers/1",
-    "/redfish/v1/Chassis/1",
-    "/redfish/v1/Chassis/1/Thermal",
-    "/redfish/v1/Chassis/1/Power",
-]
+# ── 压测目标接口（运行时由 _discover_stress_targets() 动态发现）──────────────
+STRESS_LABELS = ["System", "Manager", "Chassis", "Thermal", "Power"]
 
 # ── PASS 标准 ────────────────────────────────────────────────────────────────
 MAX_FAIL_COUNT    = 0     # 连接失败次数必须为 0（失败次数 > 0 即 FAIL，但不提前终止）
@@ -119,11 +115,30 @@ class BmcStress001RedfishApiStress(BmcTestBase):
         if self.DURATION == DEFAULT_DURATION_SEC:
             self.DURATION = int(conf_section.get("DurationSeconds", DEFAULT_DURATION_SEC))
 
+    def _discover_stress_targets(self, test: CommonFunction) -> list:
+        """运行时通过 SDK 类型化接口发现压测目标（URI + 请求函数），不硬编码任何路径。
+
+        Returns
+        -------
+        list[tuple[str, callable]] — (标签, 执行请求的 lambda)
+        """
+        c = self.client
+        targets = [
+            ("System",  lambda: c.get_system()),
+            ("Manager", lambda: c.get_manager()),
+            ("Chassis", lambda: c.get_chassis()),
+            ("Thermal", lambda: c.get_thermal()),
+            ("Power",   lambda: c.get_power()),
+        ]
+        for label, fn in targets:
+            test.print_log("INFO", f"  压测目标发现：{label}")
+        return targets
+
     def run(self):
         test = CommonFunction()
         test.print_log("INFO", f"测试用例名称：{self.TEST_NAME}，编号：{self.TEST_NUM}")
         test.print_log("INFO", f"压测时长：{self.DURATION}s（{self.DURATION/3600:.1f}h），"
-                                f"接口数：{len(STRESS_URIS)}，间隔：{INTERVAL_SEC}s")
+                                f"接口数：{len(STRESS_LABELS)}，间隔：{INTERVAL_SEC}s")
         test.print_log("INFO", "测试开始")
 
         # ── 统计变量 ──────────────────────────────────────────────────────────
@@ -132,7 +147,6 @@ class BmcStress001RedfishApiStress(BmcTestBase):
         total_fail    = 0
         total_timeout = 0              # 单次延时 > LATENCY_THRESHOLD 的次数
         latencies_all = []             # 全量成功请求耗时
-        per_uri_stats = {u: {"ok": 0, "fail": 0, "timeout": 0, "latencies": []} for u in STRESS_URIS}
         hour_records  = []             # 每小时中间统计
         final         = "FAIL"
 
@@ -148,6 +162,11 @@ class BmcStress001RedfishApiStress(BmcTestBase):
                 password=self.PASSWORD,
             )
             test.print_log("INFO", "BMC 连接成功，开始压测...")
+
+            # 动态发现压测目标
+            stress_targets = self._discover_stress_targets(test)
+            per_uri_stats = {label: {"ok": 0, "fail": 0, "timeout": 0, "latencies": []}
+                             for label, _ in stress_targets}
 
             uri_idx = 0
             while True:
@@ -186,31 +205,31 @@ class BmcStress001RedfishApiStress(BmcTestBase):
                     last_report_ts = time.time()
 
                 # ── 发起一次请求 ──────────────────────────────────────────
-                uri = STRESS_URIS[uri_idx % len(STRESS_URIS)]
+                label, req_fn = stress_targets[uri_idx % len(stress_targets)]
                 uri_idx += 1
                 req_start = time.time()
                 try:
-                    self.client.get_raw(uri)
+                    req_fn()
                     latency = time.time() - req_start
                     total_req += 1
                     total_ok  += 1
                     latencies_all.append(latency)
-                    per_uri_stats[uri]["ok"] += 1
-                    per_uri_stats[uri]["latencies"].append(latency)
+                    per_uri_stats[label]["ok"] += 1
+                    per_uri_stats[label]["latencies"].append(latency)
                     # 超时统计（连接成功但响应慢）
                     if latency > LATENCY_THRESHOLD:
                         total_timeout += 1
-                        per_uri_stats[uri]["timeout"] += 1
+                        per_uri_stats[label]["timeout"] += 1
                         test.print_log("WARNING",
-                            f"单次超时 [{uri}] latency={latency:.3f}s > {LATENCY_THRESHOLD}s"
+                            f"单次超时 [{label}] latency={latency:.3f}s > {LATENCY_THRESHOLD}s"
                             f"（累计超时={total_timeout}）")
                 except Exception as e:
                     latency = time.time() - req_start
                     total_req  += 1
                     total_fail += 1
-                    per_uri_stats[uri]["fail"] += 1
+                    per_uri_stats[label]["fail"] += 1
                     test.print_log("WARNING",
-                        f"请求失败 [{uri}] 耗时={latency:.3f}s 累计失败={total_fail} err={str(e)[:120]}")
+                        f"请求失败 [{label}] 耗时={latency:.3f}s 累计失败={total_fail} err={str(e)[:120]}")
 
                 # ── 控制速率 ──────────────────────────────────────────────
                 elapsed_req = time.time() - req_start
@@ -245,15 +264,15 @@ class BmcStress001RedfishApiStress(BmcTestBase):
         test.print_log("INFO", f"avg={stats_all['avg']}s P50={stats_all['p50']}s "
                                f"P95={stats_all['p95']}s P99={stats_all['p99']}s Max={stats_all['max']}s")
 
-        # ── 逐条打印每个 URI 统计 ──────────────────────────────────────────
+        # ── 逐条打印每个目标统计 ──────────────────────────────────────────
         uri_summary = []
-        for uri, s in per_uri_stats.items():
+        for label, s in per_uri_stats.items():
             uri_stat = _calc_stats(s["latencies"])
             test.print_log("INFO",
-                f"  {uri}: ok={s['ok']} fail={s['fail']} timeout={s['timeout']} "
+                f"  {label}: ok={s['ok']} fail={s['fail']} timeout={s['timeout']} "
                 f"avg={uri_stat['avg']}s P99={uri_stat['p99']}s max={uri_stat['max']}s")
             uri_summary.append({
-                "uri": uri, "ok": s["ok"], "fail": s["fail"], "timeout": s["timeout"],
+                "uri": label, "ok": s["ok"], "fail": s["fail"], "timeout": s["timeout"],
                 "total": s["ok"] + s["fail"], "latency": uri_stat,
             })
 

@@ -6,6 +6,7 @@ Usage: python3 bmc/managers_023_sol_log_test.py -i <bmc_ip> -u <username> -p <pa
 Update:
 2026/05/11: 新增，BMC SOL 串口日志采集测试
 2026/05/11: 侧重 SOL 连接建立与日志收集，不做串口源配置切换
+2026/10/16: SDK 1.3.0 适配 - 改用 get_sol_source() 类型化接口，URI 由 SDK 自动发现（issue/8）
 
 测试内容：
   1. GET SOLSourceControlInfo，验证 SOL 配置结构完整性
@@ -38,7 +39,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SOL_INFO_URI     = "/redfish/v1/Managers/1/SOLSourceControlInfo"
 SOL_CAPTURE_SEC  = 30    # SOL 日志采集时长（秒）
 SOL_CMD_TIMEOUT  = 60    # ipmitool sol activate 总超时（秒，含采集时间 + 裕量）
 
@@ -89,14 +89,11 @@ class Managers023SolLogTest(BmcTestBase):
                 host=self.BMC_IP, username=self.USERNAME, password=self.PASSWORD
             )
 
-            # ── 1. 查询 SOL 配置 ─────────────────────────────────────────
-            # [SDK-GAP] get_raw(SOL_INFO_URI) 获取 SOLSourceControlInfo 配置：
-            #   SOLSourceControlInfo 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SOLSourceControlInfo')："
-                           "SOLSourceControlInfo 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            sol_data = self.client.get_raw(SOL_INFO_URI)
-            serial_source    = sol_data.get("SerialSource", "")
-            parameters       = sol_data.get("Parameters", {})
+            # ── 1. 查询 SOL 配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）──
+            sol_data = self.client.get_sol_source()
+            # SerialSource/Parameters 为 OEM 扩展字段，经 extra 保留可属性访问
+            serial_source    = getattr(sol_data, "SerialSource", "") or ""
+            parameters       = getattr(sol_data, "Parameters", None) or {}
             allowable_values = parameters.get("AllowableValues", []) \
                                if isinstance(parameters, dict) else []
 

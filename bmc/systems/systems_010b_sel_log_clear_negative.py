@@ -5,6 +5,7 @@ Date: 2026/04/21
 Usage: python3 bmc/systems_010b_sel_log_clear_negative.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/21: 新增
+2026/10/16: SDK 1.3.0 适配 - LogService 路径改由 SDK Log 对象 @odata.id 动态获取（issue/8）
 
 数据来源：get_system_log_services() → List[Log]
           对 SEL LogService 发起各种非法清除请求，验证 BMC 正确拒绝
@@ -65,7 +66,12 @@ class SELLogClearNegativeCheck(BmcTestBase):
     # ── 找 SEL LogService（Systems → Managers fallback）───────────────────────
 
     def _find_sel_log_service(self):
-        """优先从 Systems 获取，失败时 fallback 到 Managers"""
+        """优先从 Systems 获取，失败时 fallback 到 Managers。
+
+        Returns
+        -------
+        (log_id, source, log_odata_id) — LogService 的 id、来源及其 @odata.id
+        """
         try:
             log_services = self.client.get_system_log_services()
             if log_services:
@@ -73,8 +79,8 @@ class SELLogClearNegativeCheck(BmcTestBase):
                     svc_name = (svc.name or "").lower()
                     svc_id = (svc.id or "").lower()
                     if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
-                        return svc.id, "Systems"
-                return log_services[0].id, "Systems"
+                        return svc.id, "Systems", svc.odata_id
+                return log_services[0].id, "Systems", log_services[0].odata_id
         except Exception as e:
             CommonFunction.print_log("WARNING", f"Systems Log Services 不可用：{str(e)}")
 
@@ -86,21 +92,18 @@ class SELLogClearNegativeCheck(BmcTestBase):
                     svc_name = (svc.name or "").lower()
                     svc_id = (svc.id or "").lower()
                     if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
-                        return svc.id, "Managers"
-                return log_services[0].id, "Managers"
+                        return svc.id, "Managers", svc.odata_id
+                return log_services[0].id, "Managers", log_services[0].odata_id
         except Exception as e:
             CommonFunction.print_log("ERROR", f"Managers Log Services 也不可用：{str(e)}")
 
-        return None, None
+        return None, None, None
 
     # ── 构造反向测试用例 ──────────────────────────────────────────────────────
 
-    def _get_test_cases(self, log_id, source):
-        """构造非法清除测试用例"""
-        if source == "Managers":
-            base = f"/redfish/v1/Managers/1/LogServices/{log_id}"
-        else:
-            base = f"/redfish/v1/Systems/1/LogServices/{log_id}"
+    def _get_test_cases(self, log_id, source, log_odata_id):
+        """构造非法清除测试用例（base 取自 SDK Log 对象 @odata.id）"""
+        base = log_odata_id or ""
         return [
             {
                 "name": "delete_log_service",
@@ -118,7 +121,9 @@ class SELLogClearNegativeCheck(BmcTestBase):
             {
                 "name": "clearlog_nonexistent",
                 "desc": "POST ClearLog 到不存在的路径",
-                "odata_id": "/redfish/v1/Systems/1/LogServices/NonExistent/Actions/LogService.ClearLog",
+                "odata_id": f"{base.rsplit('/LogServices/', 1)[0]}/LogServices/NonExistent/Actions/LogService.ClearLog"
+                            if "/LogServices/" in base else
+                            f"{base}/NonExistent/Actions/LogService.ClearLog",
                 "method": "POST",
             },
             {
@@ -171,14 +176,14 @@ class SELLogClearNegativeCheck(BmcTestBase):
 
     def sel_log_clear_negative_check(self) -> tuple:
         CommonFunction.print_log("INFO", "开始查找 SEL Log Service")
-        log_id, source = self._find_sel_log_service()
+        log_id, source, log_odata_id = self._find_sel_log_service()
         if log_id is None:
             CommonFunction.print_log("ERROR", "Systems 和 Managers 均未找到 Log Service，检查失败")
             return "FAIL", []
 
-        CommonFunction.print_log("INFO", f"从 {source} 找到 Log Service: {log_id}")
+        CommonFunction.print_log("INFO", f"从 {source} 找到 Log Service: {log_id}（{log_odata_id}）")
 
-        test_cases = self._get_test_cases(log_id, source)
+        test_cases = self._get_test_cases(log_id, source, log_odata_id)
         all_results = []
         result_list = []
 

@@ -5,6 +5,7 @@ Date: 2026/04/21
 Usage: python3 bmc/systems_009_sel_log_modify_negative.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/21: 新增
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 
 数据来源：get_system_log_services() → List[Log]，get_system_log_entries() → List[LogEntry]
           对已有 LogEntry 的只读字段发起 PATCH 非法修改请求
@@ -71,7 +72,11 @@ class SELLogModifyNegativeCheck(BmcTestBase):
     def _find_sel_log_service(self):
         """优先从 Systems 获取，失败时 fallback 到 Managers。
         返回 (Log对象, source字符串)，Log 对象由 SDK 类型化解析。
+
+        注意：Systems 侧未命中 SEL 时不立即取第一个（可能为 BIOS/Crashdump 等
+        非 SEL 服务），继续到 Managers 侧查找；两侧均未命中 SEL 才取第一个兜底。
         """
+        first_systems_svc = None
         try:
             log_services = self.client.get_system_log_services()
             if log_services:
@@ -80,7 +85,7 @@ class SELLogModifyNegativeCheck(BmcTestBase):
                     svc_id = (svc.id or "").lower()
                     if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
                         return svc, "Systems"
-                return log_services[0], "Systems"
+                first_systems_svc = log_services[0]
         except Exception as e:
             CommonFunction.print_log("WARNING", f"Systems Log Services 不可用：{str(e)}")
 
@@ -93,6 +98,8 @@ class SELLogModifyNegativeCheck(BmcTestBase):
                     svc_id = (svc.id or "").lower()
                     if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
                         return svc, "Managers"
+                if first_systems_svc is not None:
+                    return first_systems_svc, "Systems"
                 return log_services[0], "Managers"
         except Exception as e:
             CommonFunction.print_log("ERROR", f"Managers Log Services 也不可用：{str(e)}")
@@ -134,8 +141,20 @@ class SELLogModifyNegativeCheck(BmcTestBase):
 
     # ── 构造反向测试用例 ──────────────────────────────────────────────────────
 
-    def _get_test_cases(self, entry_odata_id):
-        """构造非法 PATCH 测试用例列表"""
+    def _get_test_cases(self, entry_odata_id, entries_base=""):
+        """构造非法 PATCH 测试用例列表
+
+        Parameters
+        ----------
+        entry_odata_id : str
+            真实存在的 LogEntry @odata.id（正向用例目标）
+        entries_base : str
+            Entries 集合 @odata.id（用于构造不存在的路径，动态拼接）
+        """
+        nonexistent_entry = (
+            f"{entries_base}/nonexistent_entry" if entries_base
+            else f"{entry_odata_id.rsplit('/', 1)[0]}/nonexistent_entry"
+        )
         return [
             {
                 "name": "modify_id",
@@ -183,7 +202,7 @@ class SELLogModifyNegativeCheck(BmcTestBase):
                 "name": "nonexistent_path",
                 "desc": "PATCH 不存在的 LogEntry 路径",
                 "target": "N/A",
-                "odata_id": "/redfish/v1/Systems/1/LogServices/SEL/Entries/nonexistent_entry",
+                "odata_id": nonexistent_entry,
                 "body": {"Message": "test"},
             },
         ]
@@ -224,9 +243,12 @@ class SELLogModifyNegativeCheck(BmcTestBase):
             CommonFunction.print_log("ERROR", "未找到任何 LogEntry，无法执行反向测试")
             return "FAIL", []
 
+        # Entries 集合 URI 从 SDK Log 对象链接动态获取
+        entries_base = (log_svc.entries.odata_id if log_svc.entries else "") or ""
+
         CommonFunction.print_log("INFO", f"目标 LogEntry: {entry_odata_id}")
 
-        test_cases = self._get_test_cases(entry_odata_id)
+        test_cases = self._get_test_cases(entry_odata_id, entries_base)
         all_results = []
         result_list = []
 

@@ -6,6 +6,7 @@ Usage: python3 bmc/managers_010_syslog_test.py -i <bmc_ip> -u <username> -p <pas
 Update:
 2026/05/08: 新增，BMC Syslog 配置功能测试，验证 Syslog 服务启用/禁用
 2026/05/08: 修复 - 被测 BMC 不支持 PATCH SyslogServers（LogType 校验 bug），改为只读验证 + ServiceEnabled 切换
+2026/10/16: SDK 1.3.0 适配 - 改用 get_syslog_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -20,8 +21,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SYSLOG_URI = "/redfish/v1/Managers/1/SyslogService"
-SUBMIT_TEST_EVENT_URI = "/redfish/v1/Managers/1/SyslogService/Actions/SyslogService.SubmitTestEvent"
 
 class Managers010SyslogTest(BmcTestBase):
     """BMC Syslog 配置功能测试
@@ -55,15 +54,11 @@ class Managers010SyslogTest(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. 查询当前 Syslog 配置
-            # [SDK-GAP] get_raw(SYSLOG_URI) 获取 SyslogService 配置：
-            #   SyslogService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SyslogService')："
-                           "SyslogService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            syslog_data = self.client.get_raw(SYSLOG_URI)
-            original_enabled = syslog_data.get("ServiceEnabled")
-            original_servers = syslog_data.get("SyslogServers", [])
-            original_protocol = syslog_data.get("TransmissionProtocol", "")
+            # 1. 查询当前 Syslog 配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            syslog_data = self.client.get_syslog_service()
+            original_enabled = syslog_data.service_enabled
+            original_servers = syslog_data.syslog_servers or []
+            original_protocol = syslog_data.transmission_protocol or ""
             test.print_log("INFO", f"当前 Syslog: ServiceEnabled={original_enabled}, "
                            f"Protocol={original_protocol}, Servers={len(original_servers)} 个")
             syslog_info["initial"] = {
@@ -75,13 +70,13 @@ class Managers010SyslogTest(BmcTestBase):
 
             # 2. 验证 SyslogServers 条目结构（只读）
             for srv in original_servers:
-                mid = srv.get("MemberId", "")
-                addr = srv.get("Address", "")
-                port = srv.get("Port", 0)
-                enabled = srv.get("Enabled", False)
+                mid = srv.member_id
+                addr = srv.address
+                port = srv.port
+                enabled = srv.enabled
                 test.print_log("INFO", f"  SyslogServer[{mid}]: Address={addr}, Port={port}, Enabled={enabled}")
             checks.append(("SyslogServers 条目结构完整", all(
-                "MemberId" in s and "Address" in s and "Port" in s
+                s.member_id is not None and s.address is not None and s.port is not None
                 for s in original_servers
             )))
 
@@ -91,11 +86,10 @@ class Managers010SyslogTest(BmcTestBase):
             # 3. 禁用 Syslog 服务
             test.print_log("INFO", "禁用 Syslog 服务...")
             try:
-                self.client.patch(SYSLOG_URI, {"ServiceEnabled": False})
+                self.client.patch(syslog_data.odata_id, {"ServiceEnabled": False})
                 time.sleep(2)
-                # [SDK-GAP] 同上，SyslogService OEM 路径
-                syslog_data = self.client.get_raw(SYSLOG_URI)
-                disabled = syslog_data.get("ServiceEnabled")
+                syslog_data = self.client.get_syslog_service()
+                disabled = syslog_data.service_enabled
                 test.print_log("INFO", f"验证禁用: ServiceEnabled={disabled}")
                 checks.append(("Syslog ServiceEnabled=False 验证", disabled is False))
                 syslog_info["after_disable"] = {"ServiceEnabled": disabled}
@@ -106,11 +100,10 @@ class Managers010SyslogTest(BmcTestBase):
             # 4. 启用 Syslog 服务
             test.print_log("INFO", "启用 Syslog 服务...")
             try:
-                self.client.patch(SYSLOG_URI, {"ServiceEnabled": True})
+                self.client.patch(syslog_data.odata_id, {"ServiceEnabled": True})
                 time.sleep(2)
-                # [SDK-GAP] 同上，SyslogService OEM 路径
-                syslog_data = self.client.get_raw(SYSLOG_URI)
-                enabled = syslog_data.get("ServiceEnabled")
+                syslog_data = self.client.get_syslog_service()
+                enabled = syslog_data.service_enabled
                 test.print_log("INFO", f"验证启用: ServiceEnabled={enabled}")
                 checks.append(("Syslog ServiceEnabled=True 验证", enabled is True))
             except RedfishException as e:
@@ -120,11 +113,10 @@ class Managers010SyslogTest(BmcTestBase):
             # 5. 恢复原始配置
             test.print_log("INFO", f"恢复原始 ServiceEnabled={original_enabled}...")
             try:
-                self.client.patch(SYSLOG_URI, {"ServiceEnabled": original_enabled})
+                self.client.patch(syslog_data.odata_id, {"ServiceEnabled": original_enabled})
                 time.sleep(1)
-                # [SDK-GAP] 同上，SyslogService OEM 路径
-                syslog_data = self.client.get_raw(SYSLOG_URI)
-                restored = syslog_data.get("ServiceEnabled")
+                syslog_data = self.client.get_syslog_service()
+                restored = syslog_data.service_enabled
                 checks.append(("Syslog ServiceEnabled 恢复验证", restored == original_enabled))
                 syslog_info["after_restore"] = {"ServiceEnabled": restored}
             except RedfishException as e:

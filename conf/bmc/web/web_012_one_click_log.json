@@ -7,8 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 30,
-        "StandardActionUri": "/redfish/v1/Managers/1/LogServices/Actions/LogServices.ExportLogs",
-        "CustomActionUri": "/redfish/v1/Managers/1/LogServices/Actions/Oem/Public/CollectAllLog",
         "ActionBody": {},
         "SuccessCodes": [
             200,
