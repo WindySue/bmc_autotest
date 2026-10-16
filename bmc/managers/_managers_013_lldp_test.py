@@ -5,6 +5,7 @@ Date: 2026/05/08
 Usage: python3 bmc/managers_013_lldp_test.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/08: 新增，BMC LLDP 设置功能测试，验证 LLDP 启用/禁用及 WorkMode 切换
+2026/10/16: SDK 1.3.0 适配 - 改用 get_lldp_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -18,8 +19,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-LLDP_URI = "/redfish/v1/Managers/1/LldpService"
 
 # ZTE LLDP WorkMode 可选值：TxOnly / RxOnly / TxRx / Disabled
 TEST_WORK_MODE = "TxOnly"
@@ -54,14 +53,10 @@ class Managers013LldpTest(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. 查询当前 LLDP 配置
-            # [SDK-GAP] get_raw(LLDP_URI) 获取 LldpService 配置：
-            #   LldpService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/LldpService')："
-                           "LldpService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            lldp_data = self.client.get_raw(LLDP_URI)
-            original_enabled = lldp_data.get("LldpEnabled")
-            original_mode = lldp_data.get("WorkMode", "")
+            # 1. 查询当前 LLDP 配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
+            lldp_data = self.client.get_lldp_service()
+            original_enabled = lldp_data.lldp_enabled
+            original_mode = lldp_data.work_mode or ""
             test.print_log("INFO", f"当前 LLDP: LldpEnabled={original_enabled}, WorkMode={original_mode}")
             lldp_info["initial"] = {
                 "LldpEnabled": original_enabled,
@@ -74,11 +69,10 @@ class Managers013LldpTest(BmcTestBase):
             # 2. 禁用 LLDP
             test.print_log("INFO", "禁用 LLDP...")
             try:
-                self.client.patch(LLDP_URI, {"LldpEnabled": False})
+                self.client.patch(lldp_data.odata_id, {"LldpEnabled": False})
                 time.sleep(2)
-                # [SDK-GAP] 同上，LldpService OEM 路径
-                lldp_data = self.client.get_raw(LLDP_URI)
-                disabled = lldp_data.get("LldpEnabled")
+                lldp_data = self.client.get_lldp_service()
+                disabled = lldp_data.lldp_enabled
                 test.print_log("INFO", f"验证禁用: LldpEnabled={disabled}")
                 checks.append(("LLDP LldpEnabled=False 验证", disabled is False))
                 lldp_info["after_disable"] = {"LldpEnabled": disabled}
@@ -89,16 +83,15 @@ class Managers013LldpTest(BmcTestBase):
             # 3. 启用 LLDP
             test.print_log("INFO", "启用 LLDP（PATCH LldpEnabled=True）...")
             try:
-                self.client.patch(LLDP_URI, {"LldpEnabled": True})
+                self.client.patch(lldp_data.odata_id, {"LldpEnabled": True})
                 time.sleep(2)
-                # [SDK-GAP] 同上，LldpService OEM 路径
-                lldp_data = self.client.get_raw(LLDP_URI)
-                new_enabled = lldp_data.get("LldpEnabled")
+                lldp_data = self.client.get_lldp_service()
+                new_enabled = lldp_data.lldp_enabled
                 test.print_log("INFO", f"验证 LldpEnabled={new_enabled}")
                 checks.append(("LLDP LldpEnabled=True 验证", new_enabled is True))
                 lldp_info["after_enable"] = {
                     "LldpEnabled": new_enabled,
-                    "WorkMode": lldp_data.get("WorkMode", ""),
+                    "WorkMode": lldp_data.work_mode or "",
                 }
             except RedfishException as e:
                 test.print_log("ERROR", f"LLDP 启用失败: {str(e)}")
@@ -111,12 +104,11 @@ class Managers013LldpTest(BmcTestBase):
             # 4. 恢复原始 LldpEnabled
             test.print_log("INFO", f"恢复原始 LLDP 配置: Enabled={original_enabled}...")
             try:
-                self.client.patch(LLDP_URI, {"LldpEnabled": original_enabled})
+                self.client.patch(lldp_data.odata_id, {"LldpEnabled": original_enabled})
                 time.sleep(2)
-                # [SDK-GAP] 同上，LldpService OEM 路径
-                lldp_data = self.client.get_raw(LLDP_URI)
-                restored_enabled = lldp_data.get("LldpEnabled")
-                restored_mode = lldp_data.get("WorkMode", "")
+                lldp_data = self.client.get_lldp_service()
+                restored_enabled = lldp_data.lldp_enabled
+                restored_mode = lldp_data.work_mode or ""
                 checks.append(("LLDP LldpEnabled 恢复验证", restored_enabled == original_enabled))
                 lldp_info["after_restore"] = {
                     "LldpEnabled": restored_enabled,

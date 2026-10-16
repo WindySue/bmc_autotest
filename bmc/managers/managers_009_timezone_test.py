@@ -6,6 +6,7 @@ Usage: python3 bmc/managers_009_timezone_test.py -i <bmc_ip> -u <username> -p <p
 Update:
 2026/05/08: 新增，BMC 时区设置功能测试（PATCH DateTimeLocalOffset），验证时区修改和恢复
 2026/05/09: 新增默认值校验（DefaultDateTimeLocalOffset=+08:00）
+2026/10/16: SDK 1.3.0 适配 - PATCH URI 改取自 Manager 资源 @odata.id（issue/8）
 """
 
 import os
@@ -19,8 +20,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-MANAGER_URI = "/redfish/v1/Managers/1"
 
 # 测试用时区偏移（UTC+9 日本标准时间）
 TEST_TIMEZONE = "+09:00"
@@ -60,6 +59,7 @@ class Managers009TimezoneTest(BmcTestBase):
 
             # 1. 查询当前时区
             mgr = self.client.get_manager()
+            manager_uri = mgr.odata_id
             original_offset = mgr.date_time_local_offset or ""
             original_datetime = mgr.date_time or ""
             test.print_log("INFO", f"当前时区: DateTimeLocalOffset={original_offset}, "
@@ -80,7 +80,7 @@ class Managers009TimezoneTest(BmcTestBase):
 
             # 2. 修改时区为 +09:00
             test.print_log("INFO", f"修改时区为 {TEST_TIMEZONE}...")
-            self.client.patch(MANAGER_URI, {"DateTimeLocalOffset": TEST_TIMEZONE})
+            self.client.patch(manager_uri, {"DateTimeLocalOffset": TEST_TIMEZONE})
             time.sleep(2)
 
             # 3. 验证时区已修改
@@ -96,7 +96,7 @@ class Managers009TimezoneTest(BmcTestBase):
 
             # 4. 恢复原始时区
             test.print_log("INFO", f"恢复原始时区 {original_offset}...")
-            self.client.patch(MANAGER_URI, {"DateTimeLocalOffset": original_offset})
+            self.client.patch(manager_uri, {"DateTimeLocalOffset": original_offset})
             time.sleep(2)
 
             # [SDK] Manager model has date_time_local_offset field

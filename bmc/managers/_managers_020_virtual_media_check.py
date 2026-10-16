@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_020_virtual_media_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC 虚拟媒体资源检查，遍历 VirtualMedia Members 并校验 MediaTypes/ConnectedVia/Inserted
+2026/10/16: SDK 1.3.0 适配 - 改用 get_virtual_media() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,7 +20,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-VIRTUAL_MEDIA_URI = "/redfish/v1/Managers/1/VirtualMedia"
 
 class Managers020VirtualMediaCheck(BmcTestBase):
     """BMC 虚拟媒体资源检查
@@ -38,15 +38,9 @@ class Managers020VirtualMediaCheck(BmcTestBase):
             case=case,
             config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_020_virtual_media_check.json"),
         )
-    def _get_member_uri(self, member: dict) -> str:
-        """从 member dict 中提取 URI（@odata.id 或 uri 字段）"""
-        uri = member.get("@odata.id")
-        if uri:
-            return uri
-        uri = member.get("uri")
-        if uri:
-            return uri
-        return ""
+    def _get_member_uri(self, member) -> str:
+        """从 member 模型实例中提取 URI（@odata.id）"""
+        return member.odata_id or ""
 
     def run_test(self):
         test = CommonFunction()
@@ -64,18 +58,14 @@ class Managers020VirtualMediaCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET VirtualMedia 集合
+            # 1. GET VirtualMedia 集合（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现，
+            #    返回成员详情列表，无需二次请求）
             test.print_log("INFO", "=== 步骤1: 查询 VirtualMedia 集合 ===")
-            # [SDK-GAP] get_raw(VIRTUAL_MEDIA_URI) 获取 VirtualMedia 集合：
-            #   VirtualMedia 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/VirtualMedia')："
-                           "VirtualMedia 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            vm_collection = self.client.get_raw(VIRTUAL_MEDIA_URI)
+            members = self.client.get_virtual_media()
             test.print_log("INFO", "VirtualMedia 集合接口查询成功")
             checks.append(("VirtualMedia 集合接口查询成功", True))
 
             # 2. Members 非空
-            members = vm_collection.get("Members", [])
             members_ok = isinstance(members, list) and len(members) > 0
             test.print_log("INFO",
                 f"Members: {'✓ 非空（{len(members)} 个）' if members_ok else '✗ 为空或类型不对'}")
@@ -84,31 +74,19 @@ class Managers020VirtualMediaCheck(BmcTestBase):
             # 3-5. 遍历每个成员详情
             member_details = []
             if members_ok:
-                for idx, member in enumerate(members):
-                    member_uri = self._get_member_uri(member)
-                    if not member_uri:
-                        test.print_log("WARNING", f"Member {idx}: 无法提取 URI，跳过")
-                        continue
-
-                    test.print_log("INFO", f"=== 步骤2.{idx+1}: 查询 Member[{idx}] 详情: {member_uri} ===")
-                    try:
-                        member_data = self.client.get_raw(member_uri)  # [SDK-GAP] 同上，VirtualMedia 成员 OEM 路径
-                    except Exception as e:
-                        test.print_log("WARNING", f"Member[{idx}] 查询失败: {str(e)}")
-                        continue
-
-                    member_id = member_data.get("Id", f"member_{idx}")
+                for idx, member_data in enumerate(members):
+                    member_id = member_data.id or f"member_{idx}"
 
                     # MediaTypes 存在（list）
-                    media_types = member_data.get("MediaTypes")
+                    media_types = member_data.media_types
                     media_types_ok = isinstance(media_types, list)
 
                     # ConnectedVia 字段存在
-                    connected_via = member_data.get("ConnectedVia")
+                    connected_via = member_data.connected_via
                     connected_via_ok = connected_via is not None
 
                     # Inserted 存在（bool）
-                    inserted = member_data.get("Inserted")
+                    inserted = member_data.inserted
                     inserted_ok = isinstance(inserted, bool)
 
                     test.print_log("INFO",

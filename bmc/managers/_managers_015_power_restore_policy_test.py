@@ -5,6 +5,7 @@ Date: 2026/05/09
 Usage: python3 bmc/managers_015_power_restore_policy_test.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/09: 新增，通电开机策略（PowerRestorePolicy）设置与验证
+2026/10/16: SDK 1.3.0 适配 - PATCH URI 改取自 System 资源 @odata.id（issue/8）
 
 数据来源：
   标准 Redfish：GET /redfish/v1/Systems/1 → PowerRestorePolicy（标准字段，ZTE 实测为 None）
@@ -37,8 +38,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException  # noqa: F401
-
-SYSTEMS_URI  = "/redfish/v1/Systems/1"
 
 # ZTE OEM 枚举值（对应标准值的 ZTE 命名，通过探测确认）
 # 标准值      → ZTE OEM 值
@@ -86,22 +85,22 @@ class PowerRestorePolicyTest(BmcTestBase):
             case=case,
             config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_015_power_restore_policy_test.json"),
         )
-    def _try_patch(self, test, body_standard: dict, body_oem: dict) -> tuple:
+    def _try_patch(self, test, systems_uri: str, body_standard: dict, body_oem: dict) -> tuple:
         """尝试 PATCH，标准失败则 OEM，返回 (success, method)
-        
+
         注意：ZTE OEM PowerOnStrategy PATCH 成功后 BMC 会短暂重启 Redfish 服务，
         可能导致 PATCH 响应 HTTP 501。此处将 501 视为"操作已提交，等待 BMC 就绪"而非失败。
         """
         # 尝试标准
         try:
-            self.client.patch(SYSTEMS_URI, body_standard)
+            self.client.patch(systems_uri, body_standard)
             return True, "standard"
         except Exception as e:
             test.print_log("WARNING", f"标准 PATCH 失败：{str(e)[:80]}，尝试 OEM...")
 
         # 尝试 OEM（允许 501 — BMC 重启 Redfish 服务导致）
         try:
-            self.client.patch(SYSTEMS_URI, body_oem)
+            self.client.patch(systems_uri, body_oem)
             return True, "oem"
         except RedfishException as e:
             err_str = str(e)
@@ -136,6 +135,7 @@ class PowerRestorePolicyTest(BmcTestBase):
             # ── 1. 读取当前策略 ──────────────────────────────────────────────
             test.print_log("INFO", "=== 步骤1: 读取当前通电策略 ===")
             sys_obj = self.client.get_system()
+            systems_uri = sys_obj.odata_id
             source, current_policy = _get_current_policy(sys_obj)
             test.print_log("INFO", f"通电策略来源：{source}，当前值：{current_policy!r}")
             policy_info["initial"] = {"source": source, "value": current_policy}
@@ -161,6 +161,7 @@ class PowerRestorePolicyTest(BmcTestBase):
             test.print_log("INFO", "=== 步骤3: PATCH 切换到 AlwaysOn / PowerOn ===")
             patch_ok, method = self._try_patch(
                 test,
+                systems_uri,
                 body_standard={"PowerRestorePolicy": TEST_POLICY_STANDARD},
                 body_oem={"Oem": {"Public": {"PowerOnStrategy": TEST_POLICY_ZTE}}},
             )
@@ -198,7 +199,7 @@ class PowerRestorePolicyTest(BmcTestBase):
                 test.print_log("INFO", "=== 步骤4: 恢复原始通电策略 ===")
                 restore_body_std = {"PowerRestorePolicy": RESTORE_POLICY_STANDARD}
                 restore_body_oem = {"Oem": {"Public": {"PowerOnStrategy": current_policy}}}
-                restore_ok, rm = self._try_patch(test, restore_body_std, restore_body_oem)
+                restore_ok, rm = self._try_patch(test, systems_uri, restore_body_std, restore_body_oem)
                 sys_obj3 = None
                 for attempt in range(4):
                     time.sleep(5)

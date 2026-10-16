@@ -5,6 +5,8 @@ Date: 2026/05/12
 Usage: python3 bmc/managers_026_default_config_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/12: 新增，BMC 默认配置合规检查
+2026/10/16: SDK 1.3.0 适配 - EthernetInterface 改用 get_manager_ethernet_interfaces()
+  类型化接口（1.1.1 pydantic 解析 bug 已在 1.3.0 修复），URI 由 SDK 自动发现（issue/8）
 
 测试内容：
   检查 BMC 出厂默认配置是否符合公司规范，包含以下检查项：
@@ -69,22 +71,17 @@ class Managers026DefaultConfigCheck(BmcTestBase):
     def _check_sharelink(self, test: CommonFunction) -> dict:
         item = {"name": "Sharelink(NCSI)关闭"}
         try:
-            # [SDK-GAP] get_raw(EthernetInterfaces) 获取接口集合 + 逐条详情：
-            #   目标字段 OEM.Public.NCSIModeSelect 在 SDK EthernetInterface 模型中不存在；
-            #   且 SDK EthernetInterface 存在 pydantic 解析 bug，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/EthernetInterfaces') "
-                           "获取 OEM.NCSIModeSelect 字段：SDK EthernetInterface 模型不含 OEM 字段，"
-                           "且存在 pydantic 解析 bug，保留 get_raw，待 SDK 完善后替换")
-            eths = self.client.get_raw("/redfish/v1/Managers/1/EthernetInterfaces")
+            # SDK 1.3.0 类型化接口（返回成员详情列表）；Oem 为 extra dict 保留
+            eths = self.client.get_manager_ethernet_interfaces()
             found_ncsi = False
-            for m in eths.get("Members", []):
-                ei = self.client.get_raw(m["@odata.id"])
-                oem_pub = ei.get("Oem", {}).get("Public", {})
+            for ei in eths:
+                oem = getattr(ei, "Oem", None) or {}
+                oem_pub = oem.get("Public", {}) if isinstance(oem, dict) else {}
                 if "NCSIModeSelect" not in oem_pub:
                     continue
                 found_ncsi = True
                 val = oem_pub["NCSIModeSelect"]
-                item["interface"]      = m["@odata.id"]
+                item["interface"]      = ei.odata_id
                 item["NCSIModeSelect"] = val
                 # None 或 "Disabled" 视为关闭
                 if val is None or str(val).lower() in ("none", "disabled", "0", "false"):
@@ -112,26 +109,20 @@ class Managers026DefaultConfigCheck(BmcTestBase):
     def _check_ipv6_disabled(self, test: CommonFunction) -> dict:
         item = {"name": "IPv6 禁用（无全局 IPv6 地址）"}
         try:
-            # [SDK-GAP] get_raw(EthernetInterfaces) 获取 IPv6Addresses 数组：
-            #   SDK EthernetInterface 有 ip_v6_addresses 字段，但存在 pydantic 解析 bug，
-            #   需通过 get_raw 获取原始 JSON，待 SDK 修复后替换
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/EthernetInterfaces') "
-                           "获取 IPv6Addresses：SDK EthernetInterface 存在 pydantic 解析 bug，"
-                           "保留 get_raw，待 SDK 修复后替换")
-            eths = self.client.get_raw("/redfish/v1/Managers/1/EthernetInterfaces")
+            # SDK 1.3.0 类型化接口（1.1.1 pydantic 解析 bug 已修复）
+            eths = self.client.get_manager_ethernet_interfaces()
             global_ipv6_list = []
-            for m in eths.get("Members", []):
-                ei = self.client.get_raw(m["@odata.id"])
-                for addr in ei.get("IPv6Addresses", []):
-                    a = addr.get("Address", "")
-                    origin = addr.get("AddressOrigin", "")
+            for ei in eths:
+                for addr in (ei.ipv6_addresses or []):
+                    a = addr.address or ""
+                    origin = addr.address_origin or ""
                     # 跳过 :: / fe80:: / LinkLocal
                     if a in ("::", "") or a.startswith(IPV6_LINKLOCAL_PREFIX):
                         continue
                     if origin == "LinkLocal":
                         continue
                     global_ipv6_list.append(
-                        {"interface": m["@odata.id"], "address": a, "origin": origin}
+                        {"interface": ei.odata_id, "address": a, "origin": origin}
                     )
 
             item["global_ipv6_addresses"] = global_ipv6_list
@@ -154,22 +145,15 @@ class Managers026DefaultConfigCheck(BmcTestBase):
     def _check_ipv4_static(self, test: CommonFunction) -> dict:
         item = {"name": "IPv4 专用管理口 Static"}
         try:
-            # [SDK-GAP] get_raw(EthernetInterfaces) 获取 IPv4Addresses.AddressOrigin：
-            #   SDK EthernetInterface 有 ip_v4_addresses 字段，但存在 pydantic 解析 bug，
-            #   需通过 get_raw 获取原始 JSON，待 SDK 修复后替换
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/EthernetInterfaces') "
-                           "获取 IPv4Addresses.AddressOrigin：SDK EthernetInterface 存在 pydantic 解析 bug，"
-                           "保留 get_raw，待 SDK 修复后替换")
-            eths = self.client.get_raw("/redfish/v1/Managers/1/EthernetInterfaces")
-            members = eths.get("Members", [])
+            # SDK 1.3.0 类型化接口（1.1.1 pydantic 解析 bug 已修复）
+            eths = self.client.get_manager_ethernet_interfaces()
             results = []
-            for m in members:
-                ei = self.client.get_raw(m["@odata.id"])
-                for addr in ei.get("IPv4Addresses", []):
-                    origin = addr.get("AddressOrigin", "")
-                    ip     = addr.get("Address", "")
+            for ei in eths:
+                for addr in (ei.ipv4_addresses or []):
+                    origin = addr.address_origin or ""
+                    ip     = addr.address or ""
                     results.append({
-                        "interface":     m["@odata.id"],
+                        "interface":     ei.odata_id,
                         "address":       ip,
                         "addressOrigin": origin,
                     })

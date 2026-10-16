@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_016_dns_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC DNS 服务配置检查，验证 HostNameConfig 和 DnsIpConfig 字段
+2026/10/16: SDK 1.3.0 适配 - 改用 get_dns_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,7 +20,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-DNS_SERVICE_URI = "/redfish/v1/Managers/1/DnsService"
 
 class Managers016DnsCheck(BmcTestBase):
     """BMC DNS 服务配置检查
@@ -53,24 +53,20 @@ class Managers016DnsCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET DnsService 接口
+            # 1. GET DnsService 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
             test.print_log("INFO", "=== 步骤1: 查询 DnsService 配置 ===")
-            # [SDK-GAP] get_raw(DNS_SERVICE_URI) 获取 DnsService 配置：
-            #   DnsService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/DnsService')："
-                           "DnsService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            dns_data = self.client.get_raw(DNS_SERVICE_URI)
+            dns_data = self.client.get_dns_service()
             test.print_log("INFO", "DnsService 接口查询成功")
             checks.append(("DnsService 接口查询成功", True))
 
-            # 2. HostNameConfig 字段存在且为 dict
-            hostname_config = dns_data.get("HostNameConfig")
+            # 2. HostNameConfig 字段存在且为 dict（OEM 扩展字段，经 extra 保留可属性访问）
+            hostname_config = getattr(dns_data, "HostNameConfig", None)
             hostname_ok = isinstance(hostname_config, dict)
             test.print_log("INFO", f"HostNameConfig: {'✓ 存在且为 dict' if hostname_ok else '✗ 缺失或类型不对'}")
             checks.append(("HostNameConfig 存在且为 dict", hostname_ok))
 
-            # 3. DnsIpConfig 字段存在且为 dict
-            dns_ip_config = dns_data.get("DnsIpConfig")
+            # 3. DnsIpConfig 字段存在且为 dict（OEM 扩展字段）
+            dns_ip_config = getattr(dns_data, "DnsIpConfig", None)
             dns_ip_ok = isinstance(dns_ip_config, dict)
             test.print_log("INFO", f"DnsIpConfig: {'✓ 存在且为 dict' if dns_ip_ok else '✗ 缺失或类型不对'}")
             checks.append(("DnsIpConfig 存在且为 dict", dns_ip_ok))

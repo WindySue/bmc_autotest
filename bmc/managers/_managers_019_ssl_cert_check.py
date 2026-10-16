@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_019_ssl_cert_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC HTTPS SSL 证书检查，验证 Issuer/Subject/ValidNotAfter/PublicKeyLengthBits
+2026/10/16: SDK 1.3.0 适配 - 改用 get_https_cert() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,7 +20,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-HTTPS_CERT_URI = "/redfish/v1/Managers/1/SecurityService/HttpsCert"
 
 class Managers019SslCertCheck(BmcTestBase):
     """BMC HTTPS SSL 证书检查
@@ -54,39 +54,35 @@ class Managers019SslCertCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET HttpsCert 接口
+            # 1. GET HttpsCert 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
             test.print_log("INFO", "=== 步骤1: 查询 HttpsCert 配置 ===")
-            # [SDK-GAP] get_raw(HTTPS_CERT_URI) 获取 HttpsCert 配置：
-            #   SecurityService/HttpsCert 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SecurityService/HttpsCert')："
-                           "HttpsCert 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            cert_data = self.client.get_raw(HTTPS_CERT_URI)
+            cert_data = self.client.get_https_cert()
             test.print_log("INFO", "HttpsCert 接口查询成功")
             checks.append(("HttpsCert 接口查询成功", True))
 
-            # 2. Issuer 存在且非空
-            issuer = cert_data.get("Issuer")
+            # 2. Issuer 存在且非空（OEM 扩展字段，经 extra 保留可属性访问）
+            issuer = getattr(cert_data, "Issuer", None)
             issuer_ok = isinstance(issuer, str) and len(issuer.strip()) > 0
             test.print_log("INFO",
                 f"Issuer: {'✓' if issuer_ok else '✗'} {issuer!r}")
             checks.append(("Issuer 存在且非空", issuer_ok))
 
-            # 3. Subject 存在且非空
-            subject = cert_data.get("Subject")
+            # 3. Subject 存在且非空（OEM 扩展字段）
+            subject = getattr(cert_data, "Subject", None)
             subject_ok = isinstance(subject, str) and len(subject.strip()) > 0
             test.print_log("INFO",
                 f"Subject: {'✓' if subject_ok else '✗'} {subject!r}")
             checks.append(("Subject 存在且非空", subject_ok))
 
-            # 4. ValidNotAfter 存在
-            valid_not_after = cert_data.get("ValidNotAfter")
+            # 4. ValidNotAfter 存在（OEM 扩展字段）
+            valid_not_after = getattr(cert_data, "ValidNotAfter", None)
             valid_not_after_ok = valid_not_after is not None
             test.print_log("INFO",
                 f"ValidNotAfter: {'✓' if valid_not_after_ok else '✗'} {valid_not_after!r}")
             checks.append(("ValidNotAfter 存在", valid_not_after_ok))
 
-            # 5. PublicKeyLengthBits 存在且 >=2048
-            pub_key_len = cert_data.get("PublicKeyLengthBits")
+            # 5. PublicKeyLengthBits 存在且 >=2048（OEM 扩展字段）
+            pub_key_len = getattr(cert_data, "PublicKeyLengthBits", None)
             pub_key_ok = isinstance(pub_key_len, (int, float)) and pub_key_len >= 2048
             test.print_log("INFO",
                 f"PublicKeyLengthBits: {'✓' if pub_key_ok else '✗'} {pub_key_len!r}")

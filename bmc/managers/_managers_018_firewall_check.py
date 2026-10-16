@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_018_firewall_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC 防火墙规则配置检查，验证 ActiveStrategy 和 Rules
+2026/10/16: SDK 1.3.0 适配 - 改用 get_firewall_rules() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -18,8 +19,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-FIREWALL_RULES_URI = "/redfish/v1/Managers/1/SecurityService/FirewallRules"
 
 VALID_STRATEGIES = ["Accept", "Drop"]
 
@@ -54,26 +53,22 @@ class Managers018FirewallCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET FirewallRules 接口
+            # 1. GET FirewallRules 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
             test.print_log("INFO", "=== 步骤1: 查询 FirewallRules 配置 ===")
-            # [SDK-GAP] get_raw(FIREWALL_RULES_URI) 获取 FirewallRules 配置：
-            #   SecurityService/FirewallRules 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SecurityService/FirewallRules')："
-                           "FirewallRules 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            fw_data = self.client.get_raw(FIREWALL_RULES_URI)
+            fw_data = self.client.get_firewall_rules()
             test.print_log("INFO", "FirewallRules 接口查询成功")
             checks.append(("FirewallRules 接口查询成功", True))
 
-            # 2. ActiveStrategy 存在且在 ["Accept", "Drop"] 中
-            active_strategy = fw_data.get("ActiveStrategy")
+            # 2. ActiveStrategy 存在且在 ["Accept", "Drop"] 中（OEM 扩展字段，经 extra 保留可属性访问）
+            active_strategy = getattr(fw_data, "ActiveStrategy", None)
             strategy_ok = active_strategy in VALID_STRATEGIES
             test.print_log("INFO",
                 f"ActiveStrategy: {'✓' if strategy_ok else '✗'} {active_strategy!r} "
                 f"（期望：{VALID_STRATEGIES}）")
             checks.append(("ActiveStrategy 存在且在有效枚举中", strategy_ok))
 
-            # 3. Rules 存在（list，可为空）
-            rules = fw_data.get("Rules")
+            # 3. Rules 存在（list，可为空，OEM 扩展字段）
+            rules = getattr(fw_data, "Rules", None)
             rules_ok = isinstance(rules, list)
             rules_count = len(rules) if rules_ok else 0
             test.print_log("INFO",

@@ -6,6 +6,7 @@ Usage: python3 bmc/managers_008_ntp_test.py -i <bmc_ip> -u <username> -p <passwo
 Update:
 2026/05/08: 新增，BMC NTP 设置功能测试（OEM NtpService），验证 NTP 启用/禁用和服务器配置
 2026/05/09: 新增默认值校验（DefaultServiceEnabled=True、DefaultPreferredNtpServer=<ntp_server>）
+2026/10/16: SDK 1.3.0 适配 - 改用 get_ntp_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -20,7 +21,16 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-NTP_URI = "/redfish/v1/Managers/1/NtpService"
+
+def _get_ntp_server(svc):
+    """读取 NTP 服务器地址。
+
+    PreferredNtpServer 为 OEM 扩展字段（SDK NtpService 模型未声明），
+    经 extra="allow" 保留在 model_extra 中可直接属性访问；
+    标准等价字段为 PrimaryNtpServer。
+    """
+    return getattr(svc, "PreferredNtpServer", None) or svc.primary_ntp_server or ""
+
 
 # 测试用 NTP 服务器地址（可替换为实际可用的 NTP 服务器）
 TEST_NTP_SERVER_1 = "ntp.aliyun.com"
@@ -47,18 +57,13 @@ class Managers008NtpTest(BmcTestBase):
             case=case,
             config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_008_ntp_test.json"),
         )
-    def _get_ntp(self, test):
-        """查询 NTP 配置
-        [SDK-GAP] get_raw('/redfish/v1/Managers/1/NtpService')：
-          NtpService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-        """
-        test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/NtpService')："
-                       "NtpService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-        return self.client.get_raw(NTP_URI)
+    def _get_ntp(self):
+        """查询 NTP 配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）"""
+        return self.client.get_ntp_service()
 
-    def _patch_ntp(self, test, body):
-        """PATCH NTP 配置"""
-        return self.client.patch(NTP_URI, body)
+    def _patch_ntp(self, svc, body):
+        """PATCH NTP 配置（URI 取自资源 @odata.id，不硬编码）"""
+        return self.client.patch(svc.odata_id, body)
 
     def run_test(self):
         test = CommonFunction()
@@ -75,9 +80,9 @@ class Managers008NtpTest(BmcTestBase):
             )
 
             # 1. 查询当前 NTP 配置
-            ntp_data = self._get_ntp(test)
-            cur_enabled = ntp_data.get("ServiceEnabled")
-            cur_server  = ntp_data.get("PreferredNtpServer", "")
+            ntp_data = self._get_ntp()
+            cur_enabled = ntp_data.service_enabled
+            cur_server  = _get_ntp_server(ntp_data)
             test.print_log("INFO", f"当前 NTP 配置: ServiceEnabled={cur_enabled}, "
                            f"PreferredNtpServer={cur_server!r}")
             ntp_info["initial"] = {
@@ -105,8 +110,8 @@ class Managers008NtpTest(BmcTestBase):
                 checks.append(("NTP 默认指向生产服务器", False))
 
             # 记录原始状态（用于恢复）
-            original_enabled = ntp_data.get("ServiceEnabled")
-            original_server = ntp_data.get("PreferredNtpServer", "")
+            original_enabled = ntp_data.service_enabled
+            original_server = _get_ntp_server(ntp_data)
 
             # 2. 启用 NTP 并设置服务器
             patch_body = {
@@ -115,7 +120,7 @@ class Managers008NtpTest(BmcTestBase):
             }
             test.print_log("INFO", f"启用 NTP，设置服务器: {TEST_NTP_SERVER_1}")
             try:
-                self._patch_ntp(test, patch_body)
+                self._patch_ntp(ntp_data, patch_body)
                 test.print_log("INFO", "NTP PATCH 请求发送成功")
                 checks.append(("NTP 启用 PATCH 成功", True))
             except RedfishException as e:
@@ -124,9 +129,9 @@ class Managers008NtpTest(BmcTestBase):
 
             # 3. 验证 NTP 已启用
             time.sleep(2)
-            ntp_data = self._get_ntp(test)
-            enabled = ntp_data.get("ServiceEnabled")
-            server = ntp_data.get("PreferredNtpServer", "")
+            ntp_data = self._get_ntp()
+            enabled = ntp_data.service_enabled
+            server = _get_ntp_server(ntp_data)
             test.print_log("INFO", f"验证 NTP: ServiceEnabled={enabled}, PreferredNtpServer={server}")
             checks.append(("NTP ServiceEnabled=True 验证", enabled is True))
             checks.append(("NTP PreferredNtpServer 设置验证", TEST_NTP_SERVER_1 in str(server)))
@@ -138,10 +143,10 @@ class Managers008NtpTest(BmcTestBase):
             # 4. 禁用 NTP
             test.print_log("INFO", "禁用 NTP...")
             try:
-                self._patch_ntp(test, {"ServiceEnabled": False})
+                self._patch_ntp(ntp_data, {"ServiceEnabled": False})
                 time.sleep(2)
-                ntp_data = self._get_ntp(test)
-                disabled = ntp_data.get("ServiceEnabled")
+                ntp_data = self._get_ntp()
+                disabled = ntp_data.service_enabled
                 test.print_log("INFO", f"验证 NTP 禁用: ServiceEnabled={disabled}")
                 checks.append(("NTP ServiceEnabled=False 验证", disabled is False))
                 ntp_info["after_disable"] = {
@@ -157,9 +162,9 @@ class Managers008NtpTest(BmcTestBase):
                 restore_body = {"ServiceEnabled": original_enabled}
                 if original_server:
                     restore_body["PreferredNtpServer"] = original_server
-                self._patch_ntp(test, restore_body)
+                self._patch_ntp(ntp_data, restore_body)
                 time.sleep(1)
-                ntp_data = self._get_ntp(test)
+                ntp_data = self._get_ntp()
                 checks.append(("NTP 配置恢复", True))
             except RedfishException as e:
                 test.print_log("WARNING", f"NTP 配置恢复失败: {str(e)}")

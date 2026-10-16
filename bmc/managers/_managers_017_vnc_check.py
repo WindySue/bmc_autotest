@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_017_vnc_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC VNC 服务配置检查，验证 SessionMode/SessionTimeoutMinutes/SSLEncryptionEnabled/MaximumNumberOfSessions
+2026/10/16: SDK 1.3.0 适配 - 改用 get_vnc_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -18,8 +19,6 @@ from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
-
-VNC_SERVICE_URI = "/redfish/v1/Managers/1/VncService"
 
 VALID_SESSION_MODES = ["Share", "Private"]
 
@@ -56,40 +55,36 @@ class Managers017VncCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET VncService 接口
+            # 1. GET VncService 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
             test.print_log("INFO", "=== 步骤1: 查询 VncService 配置 ===")
-            # [SDK-GAP] get_raw(VNC_SERVICE_URI) 获取 VncService 配置：
-            #   VncService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/VncService')："
-                           "VncService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            vnc_data = self.client.get_raw(VNC_SERVICE_URI)
+            vnc_data = self.client.get_vnc_service()
             test.print_log("INFO", "VncService 接口查询成功")
             checks.append(("VncService 接口查询成功", True))
 
-            # 2. SessionMode 存在且在 ["Share", "Private"] 中
-            session_mode = vnc_data.get("SessionMode")
+            # 2. SessionMode 存在且在 ["Share", "Private"] 中（OEM 扩展字段，经 extra 保留可属性访问）
+            session_mode = getattr(vnc_data, "SessionMode", None)
             session_mode_ok = session_mode in VALID_SESSION_MODES
             test.print_log("INFO",
                 f"SessionMode: {'✓' if session_mode_ok else '✗'} {session_mode!r} "
                 f"（期望：{VALID_SESSION_MODES}）")
             checks.append(("SessionMode 存在且在有效枚举中", session_mode_ok))
 
-            # 3. SessionTimeoutMinutes 存在且 >0
-            session_timeout = vnc_data.get("SessionTimeoutMinutes")
+            # 3. SessionTimeoutMinutes 存在且 >0（OEM 扩展字段）
+            session_timeout = getattr(vnc_data, "SessionTimeoutMinutes", None)
             timeout_ok = isinstance(session_timeout, (int, float)) and session_timeout > 0
             test.print_log("INFO",
                 f"SessionTimeoutMinutes: {'✓' if timeout_ok else '✗'} {session_timeout!r}")
             checks.append(("SessionTimeoutMinutes 存在且 >0", timeout_ok))
 
-            # 4. SSLEncryptionEnabled 存在且为 bool
-            ssl_enabled = vnc_data.get("SSLEncryptionEnabled")
+            # 4. SSLEncryptionEnabled 存在且为 bool（OEM 扩展字段）
+            ssl_enabled = getattr(vnc_data, "SSLEncryptionEnabled", None)
             ssl_ok = isinstance(ssl_enabled, bool)
             test.print_log("INFO",
                 f"SSLEncryptionEnabled: {'✓' if ssl_ok else '✗'} {ssl_enabled!r}")
             checks.append(("SSLEncryptionEnabled 存在且为 bool", ssl_ok))
 
-            # 5. MaximumNumberOfSessions 存在且 >=1
-            max_sessions = vnc_data.get("MaximumNumberOfSessions")
+            # 5. MaximumNumberOfSessions 存在且 >=1（OEM 扩展字段）
+            max_sessions = getattr(vnc_data, "MaximumNumberOfSessions", None)
             max_ok = isinstance(max_sessions, int) and max_sessions >= 1
             test.print_log("INFO",
                 f"MaximumNumberOfSessions: {'✓' if max_ok else '✗'} {max_sessions!r}")

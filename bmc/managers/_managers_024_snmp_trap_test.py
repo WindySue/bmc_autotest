@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_024_snmp_trap_test.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC SNMP Trap 测试告警触发测试
+2026/10/16: SDK 1.3.0 适配 - 改用 get_snmp_service() 类型化接口，URI 由 SDK 自动发现（issue/8）
 
 测试内容：
   1. 查询 SNMP 服务配置，获取 TrapServer 列表
@@ -33,8 +34,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SNMP_URI       = "/redfish/v1/Managers/1/SnmpService"
-SNMP_TEST_URI  = "/redfish/v1/Managers/1/SnmpService/Actions/SnmpService.SubmitTestEvent"
 
 class Managers024SnmpTrapTest(BmcTestBase):
     """BMC SNMP Trap 测试告警触发测试"""
@@ -59,18 +58,15 @@ class Managers024SnmpTrapTest(BmcTestBase):
                 host=self.BMC_IP, username=self.USERNAME, password=self.PASSWORD
             )
 
-            # ── 1. 查询 SNMP 服务配置 ─────────────────────────────────────
-            # [SDK-GAP] get_raw(SNMP_URI) 获取 SnmpService 配置：
-            #   SnmpService 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SnmpService')："
-                           "SnmpService 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            snmp_data = self.client.get_raw(SNMP_URI)
-            svc_enabled  = snmp_data.get("SnmpServiceEnable")
-            svc_port     = snmp_data.get("SnmpServicePort")
-            trap_notify  = snmp_data.get("SnmpTrapNotification", {})
-            trap_enabled = trap_notify.get("snmpTrapEnable") if isinstance(trap_notify, dict) else None
-            trap_servers = trap_notify.get("TrapServer", []) if isinstance(trap_notify, dict) else []
-            trap_version = trap_notify.get("TrapVersion") if isinstance(trap_notify, dict) else None
+            # ── 1. 查询 SNMP 服务配置（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）──
+            snmp_data = self.client.get_snmp_service()
+            # SnmpServiceEnable/SnmpServicePort 为 OEM 扩展字段，经 extra 保留可属性访问
+            svc_enabled  = getattr(snmp_data, "SnmpServiceEnable", None)
+            svc_port     = getattr(snmp_data, "SnmpServicePort", None)
+            trap_notify  = snmp_data.snmp_trap_notification
+            trap_enabled = getattr(trap_notify, "snmpTrapEnable", None) if trap_notify else None
+            trap_servers = (trap_notify.trap_server if trap_notify else None) or []
+            trap_version = trap_notify.trap_version if trap_notify else None
 
             test.print_log("INFO",
                 f"SNMP 配置：ServiceEnabled={svc_enabled}, Port={svc_port}, "
@@ -87,14 +83,15 @@ class Managers024SnmpTrapTest(BmcTestBase):
 
             checks.append(("SNMP 服务查询成功", True))
             checks.append(("SnmpServiceEnable 字段存在", svc_enabled is not None))
-            checks.append(("SnmpTrapNotification 结构存在", isinstance(trap_notify, dict)))
+            checks.append(("SnmpTrapNotification 结构存在", trap_notify is not None))
 
             # ── 2. 触发 Trap 测试告警 ─────────────────────────────────────
+            # TrapServerAddress 为 OEM 字段（SDK TrapServer 模型为 Destination），经 extra 保留
             active_servers = []
             if isinstance(trap_servers, list):
                 active_servers = [
                     s for s in trap_servers
-                    if isinstance(s, dict) and s.get("TrapServerAddress", "")
+                    if getattr(s, "TrapServerAddress", "") or (s.destination or "")
                 ]
 
             if not active_servers:
@@ -103,11 +100,18 @@ class Managers024SnmpTrapTest(BmcTestBase):
                 detail["trap_test"] = {"skipped": True, "reason": "no_trap_server_configured"}
             else:
                 # 对第一个有效 TrapServer 触发测试
-                member_id = active_servers[0].get("MemberId", "1")
+                # SubmitTestEvent action SDK 未封装，target 从资源 Actions 元数据动态获取
+                first = active_servers[0]
+                member_id = getattr(first, "MemberId", None) or first.id or "1"
+                actions = getattr(snmp_data, "Actions", None) or {}
+                submit_action = actions.get("#SnmpService.SubmitTestEvent", {})
+                submit_target = submit_action.get("target", "") if isinstance(submit_action, dict) else ""
+                if not submit_target:
+                    raise RedfishException("SnmpService 响应中无 #SnmpService.SubmitTestEvent target")
                 test.print_log("INFO",
                     f"对 MemberId={member_id} 发送 SNMP Trap 测试告警...")
                 try:
-                    self.client.post(SNMP_TEST_URI, {"MemberId": str(member_id)})
+                    self.client.post(submit_target, {"MemberId": str(member_id)})
                     test.print_log("INFO", "SNMP SubmitTestEvent POST 成功")
                     checks.append(("SNMP Trap 测试告警触发成功", True))
                     detail["trap_test"] = {"member_id": member_id, "result": "PASS"}

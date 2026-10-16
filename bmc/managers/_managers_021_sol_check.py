@@ -5,6 +5,7 @@ Date: 2026/05/11
 Usage: python3 bmc/managers_021_sol_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/11: 新增，BMC SOL 串口源配置检查，验证 SerialSource 和 Parameters.AllowableValues
+2026/10/16: SDK 1.3.0 适配 - 改用 get_sol_source() 类型化接口，URI 由 SDK 自动发现（issue/8）
 """
 
 import os
@@ -19,7 +20,6 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-SOL_SOURCE_URI = "/redfish/v1/Managers/1/SOLSourceControlInfo"
 
 class Managers021SolCheck(BmcTestBase):
     """BMC SOL 串口源配置检查
@@ -53,25 +53,21 @@ class Managers021SolCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
-            # 1. GET SOLSourceControlInfo 接口
+            # 1. GET SOLSourceControlInfo 接口（SDK 1.3.0 类型化接口，URI 由 SDK 自动发现）
             test.print_log("INFO", "=== 步骤1: 查询 SOLSourceControlInfo 配置 ===")
-            # [SDK-GAP] get_raw(SOL_SOURCE_URI) 获取 SOLSourceControlInfo 配置：
-            #   SOLSourceControlInfo 为 OEM 扩展路径，SDK 无对应类型化接口，保留 get_raw
-            test.print_log("WARNING", "[SDK-GAP] get_raw('/redfish/v1/Managers/1/SOLSourceControlInfo')："
-                           "SOLSourceControlInfo 为 OEM 扩展路径，SDK 无对应类型化接口，待 SDK 补充后替换")
-            sol_data = self.client.get_raw(SOL_SOURCE_URI)
+            sol_data = self.client.get_sol_source()
             test.print_log("INFO", "SOLSourceControlInfo 接口查询成功")
             checks.append(("SOLSourceControlInfo 接口查询成功", True))
 
-            # 2. SerialSource 存在且非空
-            serial_source = sol_data.get("SerialSource")
+            # 2. SerialSource 存在且非空（OEM 扩展字段，经 extra 保留可属性访问）
+            serial_source = getattr(sol_data, "SerialSource", None)
             serial_source_ok = isinstance(serial_source, str) and len(serial_source.strip()) > 0
             test.print_log("INFO",
                 f"SerialSource: {'✓' if serial_source_ok else '✗'} {serial_source!r}")
             checks.append(("SerialSource 存在且非空", serial_source_ok))
 
-            # 3. Parameters 存在
-            parameters = sol_data.get("Parameters")
+            # 3. Parameters 存在（OEM 扩展字段）
+            parameters = getattr(sol_data, "Parameters", None)
             params_ok = isinstance(parameters, dict)
             test.print_log("INFO",
                 f"Parameters: {'✓ 存在且为 dict' if params_ok else '✗ 缺失或类型不对'}")
