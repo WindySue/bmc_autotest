@@ -2,7 +2,7 @@
 """
 Author: Fengmian
 Date: 2026/05/14
-Update: 2026/07/02 — SDK v1.1.1 subscribe() 原生支持 http_headers，简化 ZTE 降级代码
+Update: 2026/07/02 — SDK v1.1.1 subscribe() 原生支持 http_headers，简化厂商降级代码
 Update: 2026/10/16 — SDK 1.3.0 适配 - 订阅集合 URI 改由 EventService.Subscriptions
         链接动态发现，不再硬编码（issue/8）
 Usage: python3 bmc/event_003_create_subscription.py -i <bmc_ip> -u <username> -p <password>

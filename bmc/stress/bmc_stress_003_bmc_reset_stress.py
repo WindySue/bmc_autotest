@@ -18,7 +18,7 @@ Update:
     - 热重启（warm）：ipmitool bmc reset warm — BMC 软重启，保留运行状态
     - 冷重启（cold）：ipmitool bmc reset cold — BMC 硬重启，完全断电重启
 
-  注意：Redfish Manager.Reset 实测两台 BMC（ZTE/Inspur）均只有 ForceRestart，
+  注意：实测各厂商 Redfish Manager.Reset 普遍仅支持 ForceRestart，
         无法区分冷热，因此改用 ipmitool 定义冷热重启语义。
 
   每轮恢复检测（三阶段，均从重启命令发出时开始计时）：

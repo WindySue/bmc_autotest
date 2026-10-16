@@ -4,7 +4,7 @@ IPMI 带外密码复杂度规则校验（正反向）（RDSV_BMC_080b）
 
 正向：8位合规/12位合规 → 应成功
 反向：7位/纯小写/无特殊字符/纯数字 → 应失败
-注意：需求规定长度上限12位，ZTE实测13位也通过，记为WARNING
+注意：需求规定长度上限12位，实测13位也通过，记为WARNING
 
 Usage: python3 bmc/ipmi_user_004.py -i <bmc_ip> -u <user> -p <pass>
 """

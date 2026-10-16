@@ -20,7 +20,7 @@ PASS 标准：
   - 若无 Server：查询校验通过即 PASS
 
 注意：
-  SyslogServers PATCH 在 ZTE 存在格式校验 bug，本脚本不做 PATCH 操作。
+  被测固件 SyslogServers PATCH 存在格式校验 bug，本脚本不做 PATCH 操作。
 """
 
 import os

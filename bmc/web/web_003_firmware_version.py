@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web固件版本查询（Web_003）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_022 - BMC/BIOS/CPLD等固件版本
 
 Usage: python3 -m bmc.web_003_firmware_version -i <bmc_ip> -u <user> -p <pass>

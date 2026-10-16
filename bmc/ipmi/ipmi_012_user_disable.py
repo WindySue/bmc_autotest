@@ -3,9 +3,9 @@
 IPMI 带外禁用用户（正向 + 超管不可禁反向）（RDSV_BMC_083）
 
 正向：创建测试用户 → disable → 验证列表 IPMI Msg=false
-反向：尝试 disable Admin(ID=3) → 应失败（ZTE 返回错误码 0x82）
+反向：尝试 disable Admin(ID=3) → 应失败（返回错误码 0x82）
 
-注意：禁用后无法通过 RMCP+ 登录验证（ZTE 会话稳定性问题），
+注意：禁用后无法通过 RMCP+ 登录验证（会话稳定性问题），
       以 user list 中 IPMI Msg 列为 false 作为禁用成功的依据
 
 Usage: python3 bmc/ipmi_user_007.py -i <bmc_ip> -u <user> -p <pass>

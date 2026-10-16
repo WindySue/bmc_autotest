@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web传感器信息查询（Web_010）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_100,110 - 传感器列表及类型覆盖
 
 Usage: python3 -m bmc.web_010_sensor_info -i <bmc_ip> -u <user> -p <pass>

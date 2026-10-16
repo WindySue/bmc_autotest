@@ -19,7 +19,7 @@ PASS 标准：
   - 若无 TrapServer：记录 WARNING，查询校验通过即 PASS
 
 注意：
-  SNMP PATCH 接口（ComplexPwdEnable 等）存在 ZTE 固件 bug（返回 400），
+  被测固件 SNMP PATCH 接口存在 ComplexPwdEnable 格式校验 bug（返回 400），
   本脚本仅测只读查询 + Trap 触发，不做 PATCH 操作。
 """
 

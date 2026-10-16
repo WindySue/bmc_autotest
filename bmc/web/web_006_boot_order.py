@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web启动顺序设置（Web_006）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_068 - 查询启动设备列表，验证PXE/HD等可用
 
 Usage: python3 -m bmc.web_006_boot_order -i <bmc_ip> -u <user> -p <pass>

@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web登录会话测试（Web_001）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_075/076/077 - Web UI 登录/登出/会话管理
 
 测试步骤：

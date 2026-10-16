@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web用户管理（Web_009）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_080~084 - 增删改查用户/禁用
 
 Usage: python3 -m bmc.web_009_user_management -i <bmc_ip> -u <user> -p <pass>
@@ -38,7 +39,7 @@ class WebUserManagement(BmcWebTestBase):
         all_pass = self._rec(steps, all_pass, 'list_accounts', code == 200,
             f'HTTP={code}, count={len(body.get("Members",[])) if isinstance(body,dict) else 0}')
 
-        # Step2：POST 新建用户（ZTE 支持 POST /Accounts 返回201，不用写死槽位）
+        # Step2：POST 新建用户（POST /Accounts 返回201，不用写死槽位）
         code2, body2 = client.post(accounts_uri, {
             'UserName': test_user.get('UserName', 'web_test_u'),
             'Password': test_user.get('Password', 'WebTest@2024'),
@@ -59,7 +60,7 @@ class WebUserManagement(BmcWebTestBase):
                 all_pass = self._rec(steps, all_pass, 'verify_created',
                     uname == test_user.get('UserName', 'web_test_u'), f'UserName={uname}')
 
-        # Step4：禁用用户（部分厂商如浪潮 PATCH 需要 If-Match ETag）
+        # Step4：禁用用户（部分厂商 PATCH 需要 If-Match ETag）
         if created_uri:
             # 先 GET 拿 ETag
             _ctx2 = _ssl.create_default_context(); _ctx2.check_hostname = False; _ctx2.verify_mode = _ssl.CERT_NONE

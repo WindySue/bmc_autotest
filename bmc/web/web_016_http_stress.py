@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web HTTP稳定性压测（Web_016）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 持续请求多个Web接口，统计成功率/响应时间
 
 Usage: python3 -m bmc.web_016_http_stress -i <bmc_ip> -u <user> -p <pass>

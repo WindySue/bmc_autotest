@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web配置导出（Web_014）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_070~073 - BMC/BIOS配置可查询
 
 Usage: python3 -m bmc.web_014_config_export -i <bmc_ip> -u <user> -p <pass>

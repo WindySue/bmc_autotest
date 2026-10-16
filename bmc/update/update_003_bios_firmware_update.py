@@ -16,6 +16,7 @@ Update:
 2026/06/09: 重构 — 使用 SDK 原生 wait_for_task() 替代自定义轮询；
             参数解析改为 override _add_args()，适配 BmcTestBase 统一规范；
             类型注解对齐 update_002
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 
 测试内容（正向 + 自动恢复）：
   阶段A 正向刷新：
@@ -42,7 +43,7 @@ Update:
   - BIOS 版本从 GET /redfish/v1/Systems/1 的 BiosVersion 字段读取
   - ServerIP 为服务器带内 IP（非 BMC IP），未配置则跳过 OS ping 检测，等待 120s
   - SDK wait_for_task() 覆盖超时为 1800s，轮询间隔 15s
-  - simple_update() 自动检测厂商并路由到对应 OEM 策略（浪潮/中兴/联想等）
+  - simple_update() 由 SDK 自动检测厂商并路由到对应 OEM 更新策略
 """
 
 import argparse

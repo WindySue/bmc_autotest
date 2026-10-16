@@ -5,6 +5,7 @@ Date: 2026/04/21
 Usage: python3 bmc/systems_009_sel_log_modify_negative.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/21: 新增
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 
 数据来源：get_system_log_services() → List[Log]，get_system_log_entries() → List[LogEntry]
           对已有 LogEntry 的只读字段发起 PATCH 非法修改请求

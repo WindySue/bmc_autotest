@@ -2,7 +2,7 @@
 """
 Author: Fengmian
 Date: 2026/05/14
-Update: 2026/07/02 — SDK v1.1.1 subscribe() 原生支持 http_headers，简化 ZTE 降级代码
+Update: 2026/07/02 — SDK v1.1.1 subscribe() 原生支持 http_headers，简化厂商降级代码
 Update: 2026/10/16 — SDK 1.3.0 适配 - 移除硬编码订阅集合 URI（issue/8）
 Usage: python3 bmc/event_006_delete_subscription.py -i <bmc_ip> -u <username> -p <password>
 

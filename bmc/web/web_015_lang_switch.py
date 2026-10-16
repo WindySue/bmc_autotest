@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web中英文切换（Web_015）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 验证 Accept-Language 响应正常，Web UI 支持中英文
 
 Usage: python3 -m bmc.web_015_lang_switch -i <bmc_ip> -u <user> -p <pass>

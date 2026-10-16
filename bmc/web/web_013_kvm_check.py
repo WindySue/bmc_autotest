@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web KVM服务检查（Web_013）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_037 - KVM服务接口可达及字段完整
 
 Usage: python3 -m bmc.web_013_kvm_check -i <bmc_ip> -u <user> -p <pass>

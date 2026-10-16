@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web历史曲线查询（Web_008）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_061,062 - 历史功率/温度曲线数据
 
 Usage: python3 -m bmc.web_008_history_curve -i <bmc_ip> -u <user> -p <pass>

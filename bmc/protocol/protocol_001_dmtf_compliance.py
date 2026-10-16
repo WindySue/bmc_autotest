@@ -2,6 +2,8 @@
 """
 Author: Fengmian
 Date: 2026/05/14
+Update:
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 Usage: python3 bmc/protocol_001_dmtf_compliance.py -i <bmc_ip> -u <username> -p <password>
 
 测试内容：DMTF Redfish 协议合规性检查（RDSV_BMC_147）
@@ -785,7 +787,7 @@ class Protocol001DmtfCompliance(BmcEventTestBase):
                              False, f"实际 HTTP {sc_71}（期望 204 或 200）")
 
             # 7-2：若 7-1 已返回 204，则 7-2 需要另一个 Action 来验证"有响应结构"场景
-            #      ZTE 暂无返回 200+action response 的 Action，记录为 INFO（非必须）
+            #      被测 BMC 暂无返回 200+action response 的 Action，记录为 INFO（非必须）
             if sc_71 == 204:
                 self._record("7-2 POST Action 200 返回 action response（有响应结构场景）",
                              LEVEL_INFO, True,

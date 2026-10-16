@@ -4,7 +4,7 @@ IPMI 带外删除用户（正向 + 超管不可删反向）（RDSV_BMC_081）
 
 IPMI 无真正 delete 命令，逻辑删除 = disable + set name 改占位名 + 降权到 NO ACCESS
 正向：创建测试用户 → 逻辑删除 → 验证在列表中不可用（IPMI Msg=false，priv=NO ACCESS）
-反向：尝试 disable 超管用户（ID=3）→ 应失败（ZTE返回错误码 0x82）
+反向：尝试 disable 超管用户（ID=3）→ 应失败（返回错误码 0x82）
 
 Usage: python3 bmc/ipmi_user_005.py -i <bmc_ip> -u <user> -p <pass>
 """

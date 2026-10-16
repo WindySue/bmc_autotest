@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web一键日志收集（Web_012）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_131 - 触发一键日志收集接口
 
 Usage: python3 -m bmc.web_012_one_click_log -i <bmc_ip> -u <user> -p <pass>

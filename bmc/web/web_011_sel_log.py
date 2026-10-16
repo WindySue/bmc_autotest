@@ -1,6 +1,7 @@
 #!/bin/python
 """
 BMC Web SEL日志查询（Web_011）
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 RDSV_BMC_137 - SEL日志条目数及字段完整性
 
 查询策略（优先级递减）：

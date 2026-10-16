@@ -15,6 +15,7 @@ Update:
 2026/05/12: 支持 HTTP 协议（nginx）；加入自动恢复（阶段B）
 2026/06/09: 重构 — 使用 SDK 原生 wait_for_task() 替代自定义轮询；
             参数解析改为 override _add_args()，适配 BmcTestBase 统一规范
+2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
 
 测试内容（正向 + 自动恢复）：
   阶段A 正向刷新：

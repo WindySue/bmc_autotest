@@ -5,7 +5,8 @@ Date: 2026/05/09
 Usage: python3 bmc/update_001_firmware_version_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/09: 新增，固件版本基本信息检查
-2026/05/09: 背板CPLD/EPLD改为必须项；适配浪潮 Front_HDD_CPLD1 命名；修复 JSON 写入
+2026/05/09: 背板CPLD/EPLD改为必须项；适配各厂商背板 CPLD 命名差异；修复 JSON 写入
+2026/10/16: 去厂商化 - 匹配规则改为厂商无关关键字描述（issue/8）
 
 数据来源：get_firmware_inventory() → List[FirmwareInventory]
   返回系统所有固件/软件组件版本（BMC、BIOS、CPLD/EPLD、NIC 等）
@@ -14,11 +15,10 @@ Update:
   通过关键字模糊匹配（不区分大小写）识别四类关键组件：
 
   必须存在且版本非空（找不到 → FAIL，找到但版本空 → FAIL）：
-    BMC      - Name/Id 含 "bmc"（ZTE: ActiveBMC；浪潮: BMC）
-    BIOS     - Name/Id 含 "bios"（ZTE: ActiveBIOS；浪潮: BIOS）
+    BMC      - Name/Id 含 "bmc"
+    BIOS     - Name/Id 含 "bios"
     主板CPLD - Name/Id 含 "cpld" 或 "epld"，且含 "mainboard"/"mb"/"main"/"managercard"
     背板CPLD - Name/Id 含 "cpld" 或 "epld"，且含 "backplane"/"bp"/"disk"/"hdd"/"front"
-               （ZTE: DiskBP_EPLD8/10；浪潮: Front_HDD_CPLD1 等）
 
   匹配 Active/Primary 优先原则：
     当 Active/Backup 同时存在时（如 ActiveBMC + BackupBMC），以 Active 为准
@@ -75,7 +75,7 @@ COMPONENT_RULES = [
     {
         "label":    "背板CPLD/EPLD版本",
         "required": True,
-        # ZTE: DiskBP_EPLD8/10/FanBoard_EPLD13；浪潮: Front_HDD_CPLD1 等
+        # 各厂商背板命名差异较大，用位置/用途关键字模糊匹配
         "match":    lambda s: ("cpld" in s or "epld" in s) and any(
             x in s for x in ["backplane", "bp_", "disk", "hdd", "front_hdd", "fanboard", "fanboad"]
         ),

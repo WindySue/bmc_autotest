@@ -97,8 +97,8 @@ class Managers013LldpTest(BmcTestBase):
                 test.print_log("ERROR", f"LLDP 启用失败: {str(e)}")
                 checks.append(("LLDP LldpEnabled=True 验证", False))
 
-            # WorkMode 仅做只读验证（ZTE 该固件版本不支持 PATCH WorkMode，为只读字段）
-            test.print_log("WARNING", f"WorkMode 字段在 ZTE 固件上为只读，跳过写测试，仅验证字段非空")
+            # WorkMode 仅做只读验证（被测固件不支持 PATCH WorkMode，为只读字段）
+            test.print_log("WARNING", "WorkMode 字段为只读，跳过写测试，仅验证字段非空")
             checks.append(("WorkMode 字段非空（只读验证）", bool(original_mode)))
 
             # 4. 恢复原始 LldpEnabled
