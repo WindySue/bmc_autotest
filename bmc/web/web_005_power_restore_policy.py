@@ -28,7 +28,7 @@ class WebPowerRestorePolicy(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        sys_uri = self.conf.get('SystemUri', '/redfish/v1/Systems/1')
+        sys_uri = self._redfish_uri('system', conf_key='SystemUri')
         expected = self.conf.get('ExpectedDefaults', ['RestorePreviousState','LastState'])
         allowable = self.conf.get('AllowableValues', [])
 

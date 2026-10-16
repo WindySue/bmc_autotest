@@ -159,6 +159,104 @@ class BmcWebTestBase:
 
     # ── 公共辅助方法 ─────────────────────────────────────────────────────────
 
+    def _redfish_uri(self, key: str, conf_key: str = "", default: str = "") -> str:
+        """按需发现 Redfish 资源 URI（issue/8：脚本不硬编码资源路径）。
+
+        优先级：conf 显式配置 > SDK 动态发现 > default。
+        /redfish/v1 是 DMTF 强约定入口，其余 URI 从 root 链接/集合成员逐级发现。
+
+        Parameters
+        ----------
+        key : str
+            资源标识，支持：system / manager / chassis / thermal / power /
+            sessions / accounts / event_service / firmware_inventory /
+            kvm_service / boot_options / bios / log_services_manager /
+            log_services_system / log_services_chassis
+        conf_key : str
+            conf 中显式配置的 key（如 "ThermalUri"），为空则不读 conf。
+        default : str
+            兜底值（仅当 SDK 发现失败时使用，正常应为空字符串）。
+
+        Returns
+        -------
+        str — 资源 URI；发现失败返回 default（可能为空）
+        """
+        # 1. conf 显式配置优先
+        if conf_key:
+            configured = (self.conf or {}).get(conf_key, "")
+            if configured:
+                return configured
+
+        # 2. SDK 动态发现（懒加载 root，整个用例生命周期只请求一次）
+        try:
+            if not hasattr(self, "_rf_root"):
+                from redfish_sdk import RedfishClient
+                c = RedfishClient(self.BMC_IP, self.USERNAME, self.PASSWORD)
+                self._rf_root = c.get_raw("/redfish/v1")
+                c.close()
+            root = self._rf_root
+        except Exception:
+            return default
+
+        links = root.get("Links", {}) or {}
+
+        def _link(k):
+            return (links.get(k) or {}).get("@odata.id", "")
+
+        def _first_member(col_uri):
+            if not col_uri:
+                return ""
+            try:
+                from redfish_sdk import RedfishClient
+                c = RedfishClient(self.BMC_IP, self.USERNAME, self.PASSWORD)
+                body = c.get_raw(col_uri)
+                c.close()
+            except Exception:
+                return ""
+            members = (body.get("Members") or []) if isinstance(body, dict) else []
+            return members[0].get("@odata.id", "") if members else ""
+
+        def _sub(parent_uri, key_name):
+            if not parent_uri:
+                return ""
+            try:
+                from redfish_sdk import RedfishClient
+                c = RedfishClient(self.BMC_IP, self.USERNAME, self.PASSWORD)
+                body = c.get_raw(parent_uri)
+                c.close()
+            except Exception:
+                return ""
+            return (body.get(key_name) or {}).get("@odata.id", "") \
+                if isinstance(body, dict) else ""
+
+        discover = {
+            "system":             lambda: _first_member(_link("Systems")),
+            "manager":            lambda: _first_member(_link("Managers")),
+            "chassis":            lambda: _first_member(_link("Chassis")),
+            "sessions":           lambda: _link("Sessions"),
+            "event_service":      lambda: (root.get("EventService") or {}).get("@odata.id", ""),
+            "firmware_inventory": lambda: _sub(
+                (root.get("UpdateService") or {}).get("@odata.id", ""), "FirmwareInventory"),
+            "thermal":            lambda: _sub(_first_member(_link("Chassis")), "Thermal"),
+            "power":              lambda: _sub(_first_member(_link("Chassis")), "Power"),
+            "bios":               lambda: _sub(_first_member(_link("Systems")), "Bios"),
+            "boot_options":       lambda: _sub(_first_member(_link("Systems")), "BootOptions"),
+            "accounts":           lambda: _sub(
+                (root.get("AccountService") or {}).get("@odata.id", ""), "Accounts"),
+            "kvm_service":        lambda: _sub(_first_member(_link("Managers")), "KvmService"),
+            "log_services_manager": lambda: _sub(_first_member(_link("Managers")), "LogServices"),
+            "log_services_system":  lambda: _sub(_first_member(_link("Systems")), "LogServices"),
+            "log_services_chassis": lambda: _sub(_first_member(_link("Chassis")), "LogServices"),
+        }
+        fn = discover.get(key)
+        if fn is None:
+            return default
+        try:
+            uri = fn()
+        except Exception:
+            uri = ""
+        return uri or default
+
     def _rec(
         self,
         steps:    list,

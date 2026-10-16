@@ -31,7 +31,10 @@ class WebHttpStress(BmcWebTestBase):
         duration = self.conf.get('DurationSeconds', 300)
         interval = self.conf.get('IntervalSeconds', 2)
         max_resp = self.conf.get('MaxResponseSec', 5.0)
-        uris = self.conf.get('StressUris', ['/redfish/v1/Systems/1'])
+        # 压测 URI：conf 显式配置优先，否则动态发现（root + system）
+        uris = self.conf.get('StressUris', [])
+        if not uris:
+            uris = ['/redfish/v1/', self._redfish_uri('system')]
 
         total = 0;  failed = 0;  slow = 0
         latencies = []

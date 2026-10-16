@@ -7,8 +7,8 @@ Update:
 2026/05/09: 新增，BIOS 基本信息检查
 
 数据来源：
-  get_bios()                  → Bios 对象（Attributes 字段，1000+ BIOS 属性）
-  get_raw('/redfish/v1/Systems/1') → BiosVersion 字段（ZTE 实测版本号放在 Systems/1 顶层）
+  get_bios()     → Bios 对象（Attributes 字段，1000+ BIOS 属性）
+  get_system()   → System 对象（bios_version 属性，ZTE 实测版本号放在 System 顶层）
 
 校验策略：
   必要字段（为空/异常 → FAIL + ERROR）：

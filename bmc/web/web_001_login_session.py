@@ -47,8 +47,9 @@ class WebLoginSession(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             return
 
-        # Step3: Session 可查
-        code, body = client.get('/redfish/v1/SessionService/Sessions')
+        # Step3: Session 可查（URI 由基类从 ServiceRoot 动态发现）
+        sessions_uri = self._redfish_uri('sessions', conf_key='SessionsUri')
+        code, body = client.get(sessions_uri)
         members = body.get('Members', []) if isinstance(body, dict) else []
         session_found = any(client.session_uri in str(m) for m in members)
         all_pass &= rec(3, 'session_in_list', code == 200, f'count={len(members)}, found={session_found}')
@@ -60,7 +61,8 @@ class WebLoginSession(BmcWebTestBase):
         ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
         stale_code: int = -1
         try:
-            req = urllib.request.Request(f'https://{self.BMC_IP}/redfish/v1/Systems/1',
+            sys_uri = self._redfish_uri('system', conf_key='SystemUri')
+            req = urllib.request.Request(f'https://{self.BMC_IP}{sys_uri}',
                                          headers={'X-Auth-Token': old_token})
             with urllib.request.urlopen(req, context=ctx, timeout=self.TIMEOUT) as r:
                 stale_code = r.status

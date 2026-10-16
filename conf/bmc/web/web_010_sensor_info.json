@@ -7,8 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "ThermalUri": "/redfish/v1/Chassis/1/Thermal",
-        "PowerUri": "/redfish/v1/Chassis/1/Power",
         "RequiredSensorTypes": [
             "Temperature",
             "Fan",

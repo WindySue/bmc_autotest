@@ -28,7 +28,7 @@ class WebFirmwareVersion(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        inv_uri = self.conf.get('FirmwareInventoryUri', '/redfish/v1/UpdateService/FirmwareInventory')
+        inv_uri = self._redfish_uri('firmware_inventory', conf_key='FirmwareInventoryUri')
         req_comps = self.conf.get('RequiredComponents', ['BMC', 'BIOS'])
 
         code, body = client.get(inv_uri)

@@ -29,7 +29,10 @@ class WebLangSwitch(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        test_uris = self.conf.get('TestUris', ['/redfish/v1/'])
+        # 测试 URI：conf 显式配置优先，否则动态发现（root + system）
+        test_uris = self.conf.get('TestUris', [])
+        if not test_uris:
+            test_uris = ['/redfish/v1/', self._redfish_uri('system')]
         lang_headers = self.conf.get('LangHeaders', {'zh': 'zh-CN,zh;q=0.9', 'en': 'en-US,en;q=0.9'})
 
         # 1. Web UI 主页在两种语言 header 下均可访问（HTTP 200）
@@ -58,8 +61,10 @@ class WebLangSwitch(BmcWebTestBase):
                 all_pass = self._rec(steps, all_pass, f'redfish_{lang}_{uri.split("/")[-1] or "root"}',
                     ok, f'HTTP={code}')
 
-        # 3. 验证 AccountService 语言相关字段（如有）
-        code3, body3 = client.get('/redfish/v1/AccountService')
+        # 3. 验证 AccountService 语言相关字段（如有，URI 动态发现）
+        acct_svc_uri = self._redfish_uri('accounts').rsplit('/Accounts', 1)[0] \
+            if self._redfish_uri('accounts') else ''
+        code3, body3 = client.get(acct_svc_uri) if acct_svc_uri else (-1, None)
         if code3 == 200 and isinstance(body3, dict):
             lang_field = body3.get('Language', body3.get('Oem',{}).get('Public',{}).get('Language',''))
             if lang_field:

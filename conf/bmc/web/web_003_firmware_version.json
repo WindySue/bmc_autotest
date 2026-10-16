@@ -7,7 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "FirmwareInventoryUri": "/redfish/v1/UpdateService/FirmwareInventory",
         "RequiredComponents": [
             "BMC",
             "BIOS"

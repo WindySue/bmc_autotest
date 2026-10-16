@@ -29,9 +29,11 @@ class WebHistoryCurve(BmcWebTestBase):
             self._save(test, steps);  return
 
         min_records = self.conf.get('MinHistoryRecords', 1)
+        power_uri   = self._redfish_uri('power', conf_key='PowerUri')
+        thermal_uri = self._redfish_uri('thermal', conf_key='ThermalUri')
 
         # 功率数据：优先 PowerControl（标准历史），降级 Oem.Public.TotalPower（当前快照）
-        code, body = client.get('/redfish/v1/Chassis/1/Power')
+        code, body = client.get(power_uri)
         if code == 200 and isinstance(body, dict):
             pctls = body.get('PowerControl', [])
             if len(pctls) > 0:
@@ -55,15 +57,19 @@ class WebHistoryCurve(BmcWebTestBase):
 
         # 温度数据：先试标准路径 Thermal.Temperatures，再试OEM历史路径
         temp_ok = False
-        code2, body2 = client.get('/redfish/v1/Chassis/1/Thermal')
+        code2, body2 = client.get(thermal_uri)
         if code2 == 200 and isinstance(body2, dict):
             temps = body2.get('Temperatures', [])
             temp_ok = len(temps) >= min_records
             all_pass = self._rec(steps, all_pass, 'temp_history_standard',
                 temp_ok, f'Temperatures={len(temps)}条')
         if not temp_ok:
-            oem_uri = self.conf.get('TempHistoryUri', '/redfish/v1/Chassis/1/Thermal/InletHistoryTemperature')
-            code3, body3 = client.get(oem_uri)
+            # OEM 历史温度路径：conf 显式配置优先，否则从 Thermal 资源链接发现
+            oem_uri = self.conf.get('TempHistoryUri', '')
+            if not oem_uri and isinstance(body2, dict):
+                oem_uri = (body2.get('Oem', {}).get('Public', {})
+                           .get('InletHistoryTemperature', {}).get('@odata.id', ''))
+            code3, body3 = client.get(oem_uri) if oem_uri else (-1, None)
             if code3 == 200:
                 records = body3 if isinstance(body3, list) else body3.get('Members', [])
                 all_pass = self._rec(steps, all_pass, 'temp_history_oem',

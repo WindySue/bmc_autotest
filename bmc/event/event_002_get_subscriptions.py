@@ -8,6 +8,9 @@ Usage: python3 bmc/event_002_get_subscriptions.py -i <bmc_ip> -u <username> -p <
   查询事件订阅集合资源（GET /redfish/v1/EventService/Subscriptions）
   验证响应结构、Members@odata.count 字段及数量一致性。
 
+  2026/10/16: SDK 1.3.0 适配 - 订阅集合 URI 改由 EventService.Subscriptions
+  链接动态发现，不再硬编码（issue/8）
+
   SDK 用法：
   - 主路：client.get_subscriptions() 返回 List[Subscription]
   - 若 SDK pydantic parse 失败（如 Status 字段结构差异），记录 WARNING 并降级 get_raw 兜底
@@ -33,8 +36,6 @@ from func.bmc_event_test_base import BmcEventTestBase
 from redfish_sdk import RedfishClient, RedfishException
 
 
-SUB_COL_URI = "/redfish/v1/EventService/Subscriptions"
-
 class Event002GetSubscriptions(BmcEventTestBase):
     CASE_KEY      = 'Event002GetSubscriptions'
     TEST_NAME     = 'EventService 订阅集合查询'
@@ -51,6 +52,10 @@ class Event002GetSubscriptions(BmcEventTestBase):
 
         findings = []
         try:
+            # 订阅集合 URI 由 EventService.Subscriptions 链接动态发现
+            sub_col_uri = self.client.get_event_service().subscriptions.odata_id
+            self.log.info(f"  订阅集合 URI（SDK 发现）：{sub_col_uri}")
+
             # 主路：SDK get_subscriptions()
             sdk_count = None
             try:
@@ -68,10 +73,10 @@ class Event002GetSubscriptions(BmcEventTestBase):
                 self.log.warning(f"  SDK get_subscriptions() 异常（降级 get_raw 兜底）：{sdk_err}")
 
             # 备用/验证路：get_raw 直接拿集合结构
-            col = self.client.get_raw(SUB_COL_URI)
+            col = self.client.get_raw(sub_col_uri)
 
             is_dict = isinstance(col, dict)
-            findings.append({"item": f"GET {SUB_COL_URI} 返回有效响应",
+            findings.append({"item": f"GET {sub_col_uri} 返回有效响应",
                              "result": "PASS" if is_dict else "FAIL",
                              "detail": f"type={type(col).__name__}"})
 

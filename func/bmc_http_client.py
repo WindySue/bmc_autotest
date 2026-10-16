@@ -91,10 +91,22 @@ class BmcHttpClient:
     # ─────────────────────────────────────────────────────
     # Session 管理
     # ─────────────────────────────────────────────────────
+    def _discover_session_uri(self) -> str:
+        """从 ServiceRoot Links.Sessions 动态发现 Session 集合 URI（issue/8）。
+
+        发现失败时回退 DMTF 惯例路径（SessionService/Sessions）。
+        """
+        sc, root, _ = self.request("GET", "/redfish/v1")
+        if sc == 200 and isinstance(root, dict):
+            uri = (root.get("Links", {}).get("Sessions") or {}).get("@odata.id", "")
+            if uri:
+                return uri
+        return "/redfish/v1/SessionService/Sessions"
+
     def login(self):
         """创建 Redfish Session，返回 (token, session_uri)；失败返回 (None, None)"""
         sc, body, hdrs = self.request(
-            "POST", "/redfish/v1/SessionService/Sessions",
+            "POST", self._discover_session_uri(),
             body={"UserName": self.username, "Password": self.password}
         )
         if sc == 201:

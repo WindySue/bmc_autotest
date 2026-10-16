@@ -7,8 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "KvmServiceUri": "/redfish/v1/Managers/1/KvmService",
-        "SystemsUri": "/redfish/v1/Systems/1",
         "RequiredKvmFields": [
             "MaximumNumberOfSessions"
         ],

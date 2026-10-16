@@ -29,8 +29,8 @@ class WebUidControl(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        chassis_uri = self.conf.get('ChassisUri', '/redfish/v1/Chassis/1')
-        patch_uri   = self.conf.get('PatchUri', '/redfish/v1/Chassis/1')
+        chassis_uri = self._redfish_uri('chassis', conf_key='ChassisUri')
+        patch_uri   = self._redfish_uri('chassis', conf_key='PatchUri')
 
         # GET Chassis，同时拿 ETag（浪潮等厂商 PATCH 需要 If-Match）
         _ctx = ssl.create_default_context(); _ctx.check_hostname = False; _ctx.verify_mode = ssl.CERT_NONE

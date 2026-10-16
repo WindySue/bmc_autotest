@@ -30,7 +30,7 @@ class WebUserManagement(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        accounts_uri = self.conf.get('AccountsUri', '/redfish/v1/AccountService/Accounts')
+        accounts_uri = self._redfish_uri('accounts', conf_key='AccountsUri')
         test_user = self.conf.get('TestUser', {})
 
         # Step1：查询用户列表

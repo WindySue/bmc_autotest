@@ -7,8 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "PowerStateUri": "/redfish/v1/Systems/1",
-        "PowerActionUri": "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset",
         "AllowableResetTypes": [
             "On",
             "ForceOff",

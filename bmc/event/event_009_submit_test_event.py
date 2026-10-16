@@ -6,7 +6,7 @@ Usage: python3 bmc/event_009_submit_test_event.py -i <bmc_ip> -u <username> -p <
 
 测试内容：
   模拟测试事件上报（正向）
-  POST /redfish/v1/EventService/Actions/EventService.SubmitTestEvent
+  POST EventService.SubmitTestEvent（URI 由 SDK 从 EventService.Actions 动态获取）
   使用合法的 EventType，验证 BMC 正常响应（不抛出异常）。
 
   说明：

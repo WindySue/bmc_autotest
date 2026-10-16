@@ -28,8 +28,8 @@ class WebSensorInfo(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        thermal_uri = self.conf.get('ThermalUri', '/redfish/v1/Chassis/1/Thermal')
-        power_uri   = self.conf.get('PowerUri', '/redfish/v1/Chassis/1/Power')
+        thermal_uri = self._redfish_uri('thermal', conf_key='ThermalUri')
+        power_uri   = self._redfish_uri('power', conf_key='PowerUri')
 
         # Thermal（温度+风扇）
         code, body = client.get(thermal_uri)

@@ -6,8 +6,11 @@ BMC Web 测试公共客户端（方案A：HTTP接口层）
     from func.web_client import BmcWebClient
     client = BmcWebClient(bmc_ip, username, password)
     client.login()
-    data = client.get('/redfish/v1/Systems/1')
+    data = client.get(system_uri)  # URI 由 SDK/ServiceRoot 动态发现
     client.logout()
+
+2026/10/16: issue/8 - Session URI 改为从 ServiceRoot Links.Sessions 动态发现，
+/redfish/v1 为 DMTF 强约定入口（唯一保留的固定路径）。
 """
 
 import json
@@ -20,7 +23,7 @@ from func.common_function import CommonFunction
 class BmcWebClient:
     """BMC Web HTTP 客户端，基于 Redfish Session 认证"""
 
-    SESSION_URI = '/redfish/v1/SessionService/Sessions'
+    ROOT_URI = '/redfish/v1'   # DMTF 强约定入口（唯一固定路径）
     DEFAULT_TIMEOUT = 10
 
     def __init__(self, bmc_ip: str, username: str, password: str, timeout: int = DEFAULT_TIMEOUT):
@@ -39,13 +42,29 @@ class BmcWebClient:
     # 认证
     # ------------------------------------------------------------------
 
+    def _discover_session_uri(self) -> str:
+        """从 ServiceRoot Links.Sessions 动态发现 Session 集合 URI。
+
+        发现失败时回退 DMTF 惯例路径（SessionService/Sessions）。
+        """
+        try:
+            req = urllib.request.Request(self.base_url + self.ROOT_URI, method='GET')
+            with urllib.request.urlopen(req, context=self._ctx, timeout=self.timeout) as resp:
+                root = json.loads(resp.read())
+            uri = (root.get('Links', {}).get('Sessions') or {}).get('@odata.id', '')
+            if uri:
+                return uri
+        except Exception:
+            pass
+        return self.ROOT_URI + '/SessionService/Sessions'
+
     def login(self, silent: bool = False) -> bool:
         """登录，获取 X-Auth-Token。成功返回 True。
         silent=True 时登录失败只打 DEBUG，适用于反向测试（预期失败）场景。
         """
         payload = json.dumps({'UserName': self.username, 'Password': self.password}).encode()
         req = urllib.request.Request(
-            self.base_url + self.SESSION_URI,
+            self.base_url + self._discover_session_uri(),
             data=payload,
             headers={'Content-Type': 'application/json'},
             method='POST',

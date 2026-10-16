@@ -7,8 +7,6 @@
         "UserName": "",
         "PassWord": "",
         "TimeoutSec": 10,
-        "SystemUri": "/redfish/v1/Systems/1",
-        "BootOptionsUri": "/redfish/v1/Systems/1/BootOptions",
         "RequiredBootDevices": [
             "Pxe",
             "Hdd"

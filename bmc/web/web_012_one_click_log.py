@@ -28,10 +28,35 @@ class WebOneClickLog(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        std_uri = self.conf.get('StandardActionUri',
-            '/redfish/v1/Managers/1/LogServices/Actions/LogServices.Dump')
-        oem_uri = self.conf.get('CustomActionUri',
-            '/redfish/v1/Managers/1/LogServices/1/Actions/LogService.ExportLogs')
+        # 一键日志 Action URI：conf 显式配置优先，否则从 Manager 的 LogServices
+        # 成员 Actions 元数据动态发现（LogServices.Dump / LogService.ExportLogs）
+        std_uri = self.conf.get('StandardActionUri', '')
+        oem_uri = self.conf.get('CustomActionUri', '')
+        if not std_uri or not oem_uri:
+            ls_uri = self._redfish_uri('log_services_manager')
+            if ls_uri:
+                client2 = BmcWebClient(self.BMC_IP, self.USERNAME, self.PASSWORD, self.TIMEOUT)
+                code_ls, body_ls = client2.get(ls_uri)
+                members = body_ls.get('Members', []) if isinstance(body_ls, dict) else []
+                for m in members:
+                    href = m.get('@odata.id', '')
+                    if not href:
+                        continue
+                    _, svc_body = client2.get(href)
+                    if not isinstance(svc_body, dict):
+                        continue
+                    actions = svc_body.get('Actions', {}) or {}
+                    for k, v in actions.items():
+                        if not isinstance(v, dict):
+                            continue
+                        target = v.get('target', '')
+                        if not target:
+                            continue
+                        if 'Dump' in k and not std_uri:
+                            std_uri = target
+                        if 'ExportLogs' in k and not oem_uri:
+                            oem_uri = target
+                client2.logout()
         body_payload = self.conf.get('ActionBody', {})
 
         # 先试标准接口

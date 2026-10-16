@@ -28,7 +28,7 @@ class WebPowerControl(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        sys_uri = self.conf.get('PowerStateUri', '/redfish/v1/Systems/1')
+        sys_uri = self._redfish_uri('system', conf_key='PowerStateUri')
         expect_resets = self.conf.get('AllowableResetTypes', [])
 
         code, body = client.get(sys_uri)

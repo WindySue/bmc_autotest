@@ -134,8 +134,20 @@ class SELLogModifyNegativeCheck(BmcTestBase):
 
     # ── 构造反向测试用例 ──────────────────────────────────────────────────────
 
-    def _get_test_cases(self, entry_odata_id):
-        """构造非法 PATCH 测试用例列表"""
+    def _get_test_cases(self, entry_odata_id, entries_base=""):
+        """构造非法 PATCH 测试用例列表
+
+        Parameters
+        ----------
+        entry_odata_id : str
+            真实存在的 LogEntry @odata.id（正向用例目标）
+        entries_base : str
+            Entries 集合 @odata.id（用于构造不存在的路径，动态拼接）
+        """
+        nonexistent_entry = (
+            f"{entries_base}/nonexistent_entry" if entries_base
+            else f"{entry_odata_id.rsplit('/', 1)[0]}/nonexistent_entry"
+        )
         return [
             {
                 "name": "modify_id",
@@ -183,7 +195,7 @@ class SELLogModifyNegativeCheck(BmcTestBase):
                 "name": "nonexistent_path",
                 "desc": "PATCH 不存在的 LogEntry 路径",
                 "target": "N/A",
-                "odata_id": "/redfish/v1/Systems/1/LogServices/SEL/Entries/nonexistent_entry",
+                "odata_id": nonexistent_entry,
                 "body": {"Message": "test"},
             },
         ]
@@ -224,9 +236,12 @@ class SELLogModifyNegativeCheck(BmcTestBase):
             CommonFunction.print_log("ERROR", "未找到任何 LogEntry，无法执行反向测试")
             return "FAIL", []
 
+        # Entries 集合 URI 从 SDK Log 对象链接动态获取
+        entries_base = (log_svc.entries.odata_id if log_svc.entries else "") or ""
+
         CommonFunction.print_log("INFO", f"目标 LogEntry: {entry_odata_id}")
 
-        test_cases = self._get_test_cases(entry_odata_id)
+        test_cases = self._get_test_cases(entry_odata_id, entries_base)
         all_results = []
         result_list = []
 

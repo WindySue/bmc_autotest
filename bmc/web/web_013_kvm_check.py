@@ -28,7 +28,7 @@ class WebKvmCheck(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        kvm_uri = self.conf.get('KvmServiceUri', '/redfish/v1/Managers/1/KvmService')
+        kvm_uri = self._redfish_uri('kvm_service', conf_key='KvmServiceUri')
         req_fields = self.conf.get('RequiredKvmFields', ['MaxSessions'])
 
         code, body = client.get(kvm_uri)

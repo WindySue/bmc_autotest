@@ -28,8 +28,8 @@ class WebConfigExport(BmcWebTestBase):
             self.command_check_result = 'FAIL'
             self._save(test, steps);  return
 
-        bmc_uri  = self.conf.get('BmcConfigUri', '/redfish/v1/Managers/1')
-        bios_uri = self.conf.get('BiosConfigUri', '/redfish/v1/Systems/1/Bios')
+        bmc_uri  = self._redfish_uri('manager', conf_key='BmcConfigUri')
+        bios_uri = self._redfish_uri('bios', conf_key='BiosConfigUri')
 
         # BMC 配置可查
         code, body = client.get(bmc_uri)
