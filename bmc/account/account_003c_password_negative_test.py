@@ -9,20 +9,39 @@ Update:
             本脚本只修改测试账号（非 Admin）的密码，Admin session 不受影响。
             guard 账号的作用：若未来代码变更意外导致 Admin 密码被改，可快速定位
             并通过 guard 账号恢复。当前版本不触发 restore 逻辑（仅记录安全网状态）。
+2026/10/26: 补全等价类与边界值覆盖（评审要求，密码为着重判定项）——
+            密码规范（我方需求）：大小写字母 + 数字 + 特殊字符四要素组合，长度 8~12 位。
+            「四要素组合」是硬规定（缺任一要素必须拦截，否则 FAIL）；
+            「长度 8~12」按 OEM 通用版本策略处理（与用户名一致：包含我方规则即可，
+            越界不强制定制，未拦截记 WARNING 不 FAIL）。
+            反向补齐：
+              - 缺要素等价类从 2 例扩到 4 例（缺大写/缺小写/缺数字/缺特殊字符各一例，
+                原脚本漏了"缺小写"和"缺数字"两个等价类）；
+              - 长度越界（7位过短/13位超长）单独归为宽松组，未拦截记 WARNING；
+              - 新增"接口接受但密码实际未生效"的登录验证（不能只看接口返回码，
+                防止 BMC 静默忽略非法密码却返回成功）。
+            注：不测 9/11 位次边界——与 8/12 同属有效长度等价类，增量价值低。
 
 校验策略（覆盖需求 RDSV_BMC_082 密码修改——反向部分）：
-  密码规范：大小写字母 + 特殊字符 + 数字，长度 ≥8 位
 
-  负向边界值：
-    - 7 位过短：Ab@1234                     → 必须拦截，否则 FAIL
-    - 纯数字（无大写/特殊字符）：12345678        → 必须拦截，否则 FAIL
-    - 纯小写+数字（缺大写/特殊字符）：abcde123   → 必须拦截，否则 FAIL
-    - 13 位（超文档建议上限12位）：Ab@1234567890x
-        BMC接受 → PASS（位数更高=更安全）
-        BMC拒绝 → 也 PASS（严格合规）
+  反向-严格（四要素缺失，硬规定，必须拦截，否则 FAIL）：
+    - 纯数字（缺大写/小写/特殊字符）：12345678
+    - 纯小写+数字（缺大写/特殊字符）：abcde123
+    - 纯大写+数字（缺小写/特殊字符）：ABCDE123
+    - 大小写+数字（缺特殊字符）：Abcd1234
+    - 大小写+特殊字符（缺数字）：Abcd@#$w
 
-  PASS：必须拦截的密码均被 BMC 拒绝；13位不影响结果
-  FAIL：7位过短 / 复杂度不足的密码被 BMC 接受且可登录
+  反向-宽松（长度越界，OEM 通用版本不强制定制，未拦截记 WARNING 不 FAIL）：
+    - 7位过短（低于下限8位）：Ab@1234
+    - 13位超长（超过上限12位）：Ab@1234567890x
+
+  判定依据（每个用例均做登录验证，不只看接口返回码）：
+    - BMC 直接拒绝（抛异常）→ PASS
+    - 接口接受但非法密码无法登录（内部拦截生效）→ WARNING（行为符合预期，接口不规范）
+    - 接口接受且非法密码可登录 → 严格组 FAIL / 宽松组 WARNING
+
+  PASS：严格组全部被拦截；宽松组不影响结果
+  FAIL：四要素缺失的密码被 BMC 接受且可登录（违反硬规定）
 
   注：密码正向边界值验证见 account_003b_password_modify_test.py
   finally 回滚：删除测试账号
@@ -48,23 +67,29 @@ from func.bmc_account_function import (
 from redfish_sdk import RedfishClient, RedfishException
 from redfish_sdk.models import Account
 
-# 必须被拦截的密码（接受且可登录 → FAIL）
-INVALID_PASSWORDS = [
-    ("Ab@1234",  "7位过短"),
-    ("12345678", "纯数字，缺少大写字母和特殊字符"),
-    ("abcde123", "纯小写+数字，缺少大写字母和特殊字符"),
+# 反向-严格：四要素缺失（硬规定，必须拦截；接受且可登录 → FAIL）
+# 等价类覆盖：4 个要素各缺一例 + 全缺（纯数字）一例
+INVALID_MISSING_ELEMENT = [
+    ("12345678",   "纯数字（缺大写/小写/特殊字符）"),
+    ("abcde123",   "纯小写+数字（缺大写/特殊字符）"),
+    ("ABCDE123",   "纯大写+数字（缺小写/特殊字符）"),
+    ("Abcd1234",   "大小写+数字（缺特殊字符）"),
+    ("Abcd@#$w",   "大小写+特殊字符（缺数字）"),
 ]
 
-# 超长密码（>12位）：BMC接受或拒绝均为 PASS（位数更高=更安全）
-OVERLENGTH_PASSWORDS = [
-    ("Ab@1234567890x", "13位（超文档建议上限，位数更高更安全，PASS）"),
+# 反向-宽松：长度越界（OEM 通用版本不强制定制，未拦截记 WARNING 不 FAIL）
+INVALID_LEN_WARN = [
+    ("Ab@1234",        "7位过短（低于下限8位）"),
+    ("Ab@1234567890x", "13位超长（超过上限12位）"),
 ]
 
 class AccountPasswordNegativeTest(BmcTestBase):
     """Account 密码修改反向测试
 
     用例编号：Redfish_Account_003c
-    检查项：非法密码（长度/复杂度不符）应被 BMC 拒绝
+    检查项：
+    - 反向-严格：四要素缺失的密码必须被 BMC 拦截（硬规定）
+    - 反向-宽松：长度越界的密码未拦截记 WARNING（OEM 通用版本，不强制定制）
     """
 
     def __init__(self, case: str):
@@ -75,7 +100,7 @@ class AccountPasswordNegativeTest(BmcTestBase):
 
     def _load_extra_config(self, conf_section: dict) -> None:
         ta = conf_section["TestAccount"]
-        self.TEST_ACCOUNT_USER = ta["UserName"] + str(_random.randint(10, 99))
+        self.TEST_ACCOUNT_USER = ta["UserName"] + "".join(_random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(2))
         self.TEST_ACCOUNT_PASS = ta["Password"]
         self.test_username    = None  # 预初始化，run_test 中实际赋值
         self.current_password = None  # 预初始化，run_test 中实际赋值
@@ -102,6 +127,39 @@ class AccountPasswordNegativeTest(BmcTestBase):
         except RedfishException:
             return False
 
+    def _try_invalid_password(self, pw: str, strict: bool) -> tuple:
+        """尝试设置非法密码并做登录验证（不只看接口返回码）。
+
+        Parameters:
+            pw:     非法密码
+            strict: True=四要素缺失（严格，接受且可登录 → FAIL）；
+                    False=长度越界（宽松，接受且可登录 → WARNING）
+
+        Returns:
+            (level, detail) — level ∈ {"PASS", "WARNING", "FAIL"}
+        """
+        try:
+            update_account_safe(self.client, self.test_username, Account(Password=pw))
+        except RedfishException as e:
+            return "PASS", f"BMC 拒绝非法密码（符合预期）：{str(e)[:80]}"
+
+        # 接口未报错，进一步验证非法密码是否真的可登录（防静默忽略却返回成功）
+        if self._try_login(pw):
+            if strict:
+                return ("FAIL",
+                        "非法密码被接受且可登录，违反密码复杂度硬规定！")
+            return ("WARNING",
+                    "长度越界密码被接受且可登录（OEM 通用版本按通用定义开发，"
+                    "未按我方 8~12 位定制拦截，记 WARNING 不 FAIL，避免要求二次开发）")
+
+        # 接口接受但无法登录：内部拦截生效，但接口行为不规范
+        # 注意：此时密码可能已被 BMC 内部改为其他值或保持原值，回滚 current_password
+        if not self._try_login(self.current_password):
+            # 原密码也登录不了了——密码状态未知，尝试用非法密码继续（已可登录）
+            self.current_password = pw
+        return ("WARNING",
+                "接口未报错但非法密码无法登录（内部拦截生效，接口行为不规范，记WARNING）")
+
     def run_test(self):
         test = CommonFunction()
         test.print_log("INFO", "测试用例名称：Account密码修改反向测试，测试用例编号：Redfish_Account_003c")
@@ -112,6 +170,7 @@ class AccountPasswordNegativeTest(BmcTestBase):
 
         result = "PASS"
         guard = None
+        rows = []  # (label, level, detail) — 逐用例记录，便于定位失败项
 
         try:
             # ── 前置：建立 guard 安全网（预防性，本脚本只改测试账号密码）────────
@@ -145,43 +204,36 @@ class AccountPasswordNegativeTest(BmcTestBase):
             self.test_username = self.TEST_ACCOUNT_USER
             self.current_password = self.TEST_ACCOUNT_PASS
 
-            # Step 2：必须拦截的负向密码（<8位 / 复杂度不足）
-            CommonFunction.print_log("INFO", "=== Step 2：必须拦截密码验证 ===")
-            for pw, desc in INVALID_PASSWORDS:
+            # Step 2：反向-严格（四要素缺失，硬规定）
+            CommonFunction.print_log("INFO", "=== Step 2：反向-严格（四要素缺失，必须拦截）===")
+            for pw, desc in INVALID_MISSING_ELEMENT:
                 CommonFunction.print_log("INFO", f"  尝试修改密码 → [{desc}]（期望被拒）")
-                try:
-                    update_account_safe(self.client, self.test_username,
-                                        Account(Password=pw))
-                    # 接口未报错，进一步验证非法密码是否真的可登录
-                    if self._try_login(pw):
-                        CommonFunction.print_log("ERROR",
-                            f"    ✗ 非法密码 [{desc}] 被接受且可登录，违反密码规范！")
-                        self.current_password = pw
-                        result = "FAIL"
-                    else:
-                        CommonFunction.print_log("INFO",
-                            f"    ✓ 接口未报错，但非法密码无法登录（符合预期）")
-                except RedfishException as e:
-                    CommonFunction.print_log("INFO",
-                        f"    ✓ BMC 拒绝非法密码（符合预期）：{str(e)[:80]}")
+                level, detail = self._try_invalid_password(pw, strict=True)
+                if level == "FAIL":
+                    result = "FAIL"
+                    self.current_password = pw   # 非法密码已生效，记录以便清理
+                    CommonFunction.print_log("ERROR", f"    ✗ {detail}")
+                elif level == "WARNING":
+                    CommonFunction.print_log("WARNING", f"    ⚠ {detail}")
+                else:
+                    CommonFunction.print_log("INFO", f"    ✓ {detail}")
+                rows.append((f"strict_len{len(pw)}", level, f"{desc} | {detail}"))
 
-            # Step 3：超长密码（>12位）—— BMC接受或拒绝均为 PASS（更长=更安全）
-            CommonFunction.print_log("INFO", "=== Step 3：超长密码验证（不影响总结果）===")
-            for pw, desc in OVERLENGTH_PASSWORDS:
-                CommonFunction.print_log("INFO", f"  测试超长密码 → [{desc}]")
-                try:
-                    update_account_safe(self.client, self.test_username,
-                                        Account(Password=pw))
-                    if self._try_login(pw):
-                        self.current_password = pw
-                        CommonFunction.print_log("INFO",
-                            f"    ✓ BMC 接受超长密码且可登录（位数更高=更安全，PASS）")
-                    else:
-                        CommonFunction.print_log("INFO",
-                            f"    ✓ BMC 接受超长密码但无法登录（不影响结果）")
-                except RedfishException as e:
-                    CommonFunction.print_log("INFO",
-                        f"    ✓ BMC 拒绝超长密码（严格限制上限，亦 PASS）：{str(e)[:80]}")
+            # Step 3：反向-宽松（长度越界，WARNING 不 FAIL）
+            CommonFunction.print_log("INFO",
+                "=== Step 3：反向-宽松（长度越界，OEM 通用版本不强制定制，记 WARNING）===")
+            for pw, desc in INVALID_LEN_WARN:
+                CommonFunction.print_log("INFO", f"  尝试修改密码 → [{desc}]")
+                level, detail = self._try_invalid_password(pw, strict=False)
+                if level == "FAIL":
+                    result = "FAIL"
+                    self.current_password = pw
+                    CommonFunction.print_log("ERROR", f"    ✗ {detail}")
+                elif level == "WARNING":
+                    CommonFunction.print_log("WARNING", f"    ⚠ {detail}")
+                else:
+                    CommonFunction.print_log("INFO", f"    ✓ {detail}")
+                rows.append((f"len_warn_len{len(pw)}", level, f"{desc} | {detail}"))
 
         except RedfishException as e:
             CommonFunction.print_log("ERROR", f"Redfish 接口异常：{e}")
@@ -206,9 +258,13 @@ class AccountPasswordNegativeTest(BmcTestBase):
 
         self.command_check_result = result
         with open(self.result_csv_path, "a", encoding="utf-8") as f:
+            for label, level, detail in rows:
+                f.write(f"{label},{level}\n")
             f.write(f"password_modify_negative,{result}\n")
-        test.add_key_value_to_json(self.result_json_path, "detail.cycle",
-                                   value={"metrics": "password_modify_negative", "value": result})
+        for label, level, detail in rows:
+            test.add_key_value_to_json(self.result_json_path, "detail.cycle",
+                                       value={"metrics": label,
+                                              "value": {"result": level, "detail": detail}})
         test.add_key_value_to_json(self.result_json_path, "summary",
                                    value={"metrics": "Account密码修改反向测试", "value": result})
         test.print_log("INFO", f"Account密码修改反向测试完成，结果：{result}")

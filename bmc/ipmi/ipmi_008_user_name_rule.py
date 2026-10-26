@@ -31,7 +31,7 @@ class IpmiUserNameRule(BmcWebTestBase):
         self.POS_CASES          = conf.get("PositiveCases", [])
         self.NEG_MUST_FAIL      = conf.get("NegativeMustFail", [])      # 未拦截 → FAIL
         self.NEG_WARN_IF_PASS   = conf.get("NegativeWarnIfPass", [])    # 未拦截 → WARNING（不影响总结果）
-        self.CLEANUP_NAME = conf.get("CleanupName", f"unused_{conf['TestUserId']}")
+        self.CLEANUP_NAME = conf.get("CleanupName", "unusedslot")
         self.CLEANUP_PRIV = conf.get("CleanupPriv", 15)
 
     def _ipmi(self, sub):

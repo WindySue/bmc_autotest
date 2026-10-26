@@ -6,7 +6,9 @@
         "BMC_IP": "",
         "UserName": "",
         "PassWord": "",
-        "TimeoutSec": 30,
+        "_comment_TimeoutSec": "HTTP 读超时（秒）。日志打包为长耗时任务，SDK 内部任务轮询默认最长 1800s，此处为单次 HTTP 请求超时，适当放宽避免大包下载被截断",
+        "TimeoutSec": 300,
+        "_comment_旧配置项": "ActionBody/SuccessCodes 为旧 POST 直发实现遗留，SDK 化后不再使用，保留键位避免外部引用报错",
         "ActionBody": {},
         "SuccessCodes": [
             200,

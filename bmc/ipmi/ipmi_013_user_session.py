@@ -7,6 +7,13 @@ IPMI 带外查询在线活动用户（RDSV_BMC_084）
   - 每个活动 session 应包含必要字段：session handle / active sessions / user id / privilege level / session type
   - 记录所有活动会话的 user id / privilege / console ip 到结果
 
+Update:
+2026/10/26: 修复真机验证反馈 —— `ipmitool session info all` 即使查询成功、
+  输出内容完整，仍可能返回非零 exit code，这是 ipmitool 自身的共性问题（不可解，
+  各方已认可该非零返回值不代表命令失败）。原逻辑用 `rc != 0 or not out` 判定失败，
+  会对这一已知共性问题误判 FAIL。改为仅以 `out` 是否为空作为失败判定依据，rc
+  仅记录在日志中供参考，不再作为判定条件。
+
 Usage: python3 bmc/ipmi_user_008.py -i <bmc_ip> -u <user> -p <pass>
 """
 
@@ -62,12 +69,14 @@ class IpmiUserSession(BmcWebTestBase):
         results = [];  all_pass = True
 
         rc, out, err = self._ipmi(["session", "info", "all"])
-        if rc != 0 or not out:
-            CommonFunction.print_log("ERROR", f"session info all 失败，rc={rc}，err={err}")
+        # 注：ipmitool session info all 即使查询成功也可能返回非零 rc（已知共性问题，
+        # 各方认可不可解），故不再以 rc 作为失败判定依据，仅以 out 是否为空判定。
+        if not out:
+            CommonFunction.print_log("ERROR", f"session info all 失败（无输出），rc={rc}，err={err}")
             results.append(("session_info_all", "FAIL", err))
             all_pass = False
         else:
-            CommonFunction.print_log("INFO", f"session info all 成功，原始输出：\n{out}")
+            CommonFunction.print_log("INFO", f"session info all 成功（rc={rc}，非零属已知共性问题，不影响判定），原始输出：\n{out}")
             results.append(("session_info_all", "PASS", "ok"))
 
             # 必要字段检查

@@ -8,10 +8,16 @@
         "PassWord": "",
         "IpmiInterface": "lanplus",
         "QueryTimeoutSec": 30,
-        "WaitAfterCycleSec": 15,
-        "WaitAfterResetSec": 5,
-        "WaitAfterOffSec": 5,
-        "WaitAfterOnSec": 5,
-        "WaitBetweenOpsSec": 3
+        "WaitBetweenOpsSec": 3,
+        "PollIntervalSec": 3,
+        "_comment_thresholds": "三级阈值：<=WarningThreshold 达标线（通算机型标准，无提示）；WarningThreshold~HardTimeout 之间 PASS 但记 WARNING（非通算机型可接受）；超 HardTimeout 判 FAIL",
+        "OnWarningThresholdSec": 5,
+        "OnHardTimeoutSec": 120,
+        "ResetWarningThresholdSec": 5,
+        "ResetHardTimeoutSec": 120,
+        "CycleWarningThresholdSec": 15,
+        "CycleHardTimeoutSec": 300,
+        "OffWarningThresholdSec": 5,
+        "OffHardTimeoutSec": 60
     }
 }

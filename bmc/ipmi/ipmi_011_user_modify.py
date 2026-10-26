@@ -35,7 +35,7 @@ class IpmiUserModify(BmcWebTestBase):
         self.MOD_NAME  = conf["ModifyNameTo"];  self.MOD_PASS = conf["ModifyPasswordTo"]
         self.PRIV_SEQ  = conf.get("ModifyPrivSequence", [2, 3, 4])
         self.PRIV_MAP  = conf.get("PrivLevelMap", {})
-        self.CLEANUP_PRIV = conf.get("CleanupPriv", 15);  self.CLEANUP_NAME = conf.get("CleanupName", f"unused_{self.UID}")
+        self.CLEANUP_PRIV = conf.get("CleanupPriv", 15);  self.CLEANUP_NAME = conf.get("CleanupName", "unusedslot")
 
     def _ipmi(self, sub):
         cmd = ["ipmitool", "-I", self.IFACE, "-H", self.BMC_IP, "-U", self.USERNAME, "-P", self.PASSWORD] + sub

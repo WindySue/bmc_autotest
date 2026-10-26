@@ -8,6 +8,9 @@ Update:
 2026/05/08: 修复 - 移除 HTTP 测试项，禁用 HTTP 会导致 BMC Web 服务整体短暂重启（含 HTTPS），
            影响后续请求稳定性；改为只测 HTTPS/SSH/SNMP
 2026/10/16: SDK 1.3.0 适配 - PATCH URI 改取自 NetworkProtocol 资源 @odata.id（issue/8）
+2026/10/23: 修复真机验证反馈 - 业务侧明确不使用 HTTP，继续保留 HTTP 只读查询项
+           没有意义，反而给 BMC 研发增加无谓的排查/修复工作量；移除 HTTP 检查项，
+           只保留 HTTPS 只读查询。
 """
 
 import os
@@ -23,9 +26,7 @@ from func.bmc_test_base import BmcTestBase
 from redfish_sdk import RedfishClient, RedfishException
 
 # 可测试的协议列表（协议名, 对应 JSON key, 默认端口）
-# 注意：HTTP/HTTPS 均不在写测试列表
-#   - HTTP：禁用后 BMC Web 服务整体重启（含 HTTPS），导致 SDK 连接断开
-#   - HTTPS：SDK 全程走 HTTPS，禁用 HTTPS 等同于切断自己的连接
+# 注意：HTTPS 不在写测试列表 —— SDK 全程走 HTTPS，禁用 HTTPS 等同于切断自己的连接
 # 只做读取验证；SSH/SNMP 可安全禁用/启用，不影响 Redfish 连接
 TESTABLE_PROTOCOLS = [
     ("SSH", "SSH", 22),
@@ -33,8 +34,8 @@ TESTABLE_PROTOCOLS = [
 ]
 
 # 只读验证的协议（仅查询 ProtocolEnabled 状态，不做写操作）
+# 业务侧明确不使用 HTTP，故不再纳入检查范围，仅保留 HTTPS
 READONLY_PROTOCOLS = [
-    ("HTTP", "HTTP", 80),
     ("HTTPS", "HTTPS", 443),
 ]
 
@@ -53,19 +54,6 @@ class Managers006bPortEnableDisable(BmcTestBase):
             case=case,
             config_path=os.path.join(os.getcwd(), "conf/bmc/managers/managers_006b_port_enable_disable.json"),
         )
-
-    def _wait_for_bmc_recovery(self, test, max_retries=15, interval=5):
-        """等待 BMC Web 服务恢复（禁用 HTTP 后 BMC 会重启 Web 服务）"""
-        for i in range(max_retries):
-            try:
-                self.client.get_network_protocol()
-                test.print_log("INFO", f"  BMC Web 服务已恢复（重试 {i+1}/{max_retries} 次）")
-                return True
-            except Exception:
-                test.print_log("INFO", f"  等待 BMC Web 服务恢复...（{i+1}/{max_retries}）")
-                time.sleep(interval)
-        test.print_log("ERROR", "  BMC Web 服务未能恢复")
-        return False
 
     def run_test(self):
         test = CommonFunction()
@@ -88,9 +76,9 @@ class Managers006bPortEnableDisable(BmcTestBase):
             checks.append(("查询 NetworkProtocol 成功", True))
 
             # proto_key → SDK 属性名映射
-            _sdk_attr = {"HTTP": "http", "HTTPS": "https", "SSH": "ssh", "SNMP": "snmp"}
+            _sdk_attr = {"HTTPS": "https", "SSH": "ssh", "SNMP": "snmp"}
 
-            # 1b. HTTP/HTTPS 只读验证（禁用会断开 Redfish 连接，只做状态查询）
+            # 1b. HTTPS 只读验证（禁用会断开 Redfish 连接，只做状态查询；HTTP 业务不使用，不再检查）
             for proto_name, proto_key, _ in READONLY_PROTOCOLS:
                 proto_obj = getattr(np, _sdk_attr[proto_key], None)
                 enabled = getattr(proto_obj, "protocol_enabled", None) if proto_obj else None
@@ -126,7 +114,7 @@ class Managers006bPortEnableDisable(BmcTestBase):
                 test.print_log("INFO", f"  验证 {proto_name} 禁用: ProtocolEnabled={disabled}")
                 checks.append((f"{proto_name} ProtocolEnabled=False 验证", disabled is False))
 
-                # 2c. 重新启用（HTTP 禁用后可能触发 BMC Web 服务重启，需要等待恢复）
+                # 2c. 重新启用
                 test.print_log("INFO", f"  重新启用 {proto_name}...")
                 patch_body = {proto_key: {"ProtocolEnabled": True}}
                 try:
@@ -134,22 +122,8 @@ class Managers006bPortEnableDisable(BmcTestBase):
                     time.sleep(2)
                     checks.append((f"{proto_name} 启用 PATCH 成功", True))
                 except RedfishException as e:
-                    test.print_log("WARNING", f"  {proto_name} 启用失败: {str(e)}")
-                    # 如果是 HTTP 且连接被拒，等待 BMC Web 服务恢复后重试
-                    if proto_key == "HTTP" and ("Connection refused" in str(e) or "Unable to connect" in str(e)):
-                        test.print_log("WARNING", f"  检测到 HTTP 禁用后 BMC Web 服务重启，等待恢复...")
-                        if self._wait_for_bmc_recovery(test):
-                            try:
-                                self.client.patch(np_uri, patch_body)
-                                time.sleep(2)
-                                checks.append((f"{proto_name} 启用 PATCH 成功（重试）", True))
-                            except RedfishException as e2:
-                                test.print_log("ERROR", f"  {proto_name} 重试启用仍失败: {str(e2)}")
-                                checks.append((f"{proto_name} 启用 PATCH 成功", False))
-                        else:
-                            checks.append((f"{proto_name} 启用 PATCH 成功", False))
-                    else:
-                        checks.append((f"{proto_name} 启用 PATCH 成功", False))
+                    test.print_log("ERROR", f"  {proto_name} 启用失败: {str(e)}")
+                    checks.append((f"{proto_name} 启用 PATCH 成功", False))
                     continue
 
                 # 2d. 验证已启用

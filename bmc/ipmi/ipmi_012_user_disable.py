@@ -1,5 +1,7 @@
 #!/bin/python
 """
+【已废弃，不再纳入 bmc_runner 默认执行，见 issue/9】
+
 IPMI 带外禁用用户（正向 + 超管不可禁反向）（RDSV_BMC_083）
 
 正向：创建测试用户 → disable → 验证列表 IPMI Msg=false
@@ -7,6 +9,16 @@ IPMI 带外禁用用户（正向 + 超管不可禁反向）（RDSV_BMC_083）
 
 注意：禁用后无法通过 RMCP+ 登录验证（会话稳定性问题），
       以 user list 中 IPMI Msg 列为 false 作为禁用成功的依据
+
+Update:
+2026/10/23: 废弃说明（issue/9，真机验证反馈）——
+  本用例唯一的验证手段就是"IPMI Msg==false"，而该字段代表的是「该用户是否允许
+  通过 IPMI 消息通道通信」这一独立配置位，与 disable（阻止登录鉴权）在协议语义
+  上是两个不同的开关，disable 不保证会联动改写该字段——此判定依据本身就不成立，
+  并非 BMC 缺陷。注释里也说明了因会话稳定性问题无法用真实登录验证 disable 效果，
+  即没有其他可靠的替代验证方式。业务侧已认可此现状，该用例已失去测试意义。
+  已从 conf/bmc/bmc_runner_suites.json 的 ipmi 分组中移除，脚本保留供历史参考，
+  不应再被 bmc_runner 默认调用；如需手动调试可用 --only ipmi_012_user_disable。
 
 Usage: python3 bmc/ipmi_user_007.py -i <bmc_ip> -u <user> -p <pass>
 """
@@ -32,7 +44,7 @@ class IpmiUserDisable(BmcWebTestBase):
         self.UID = conf["TestUserId"];  self.UNAME = conf["TestUserName"]
         self.UPASS = conf["TestUserPassword"];  self.UPRIV = conf["TestUserPriv"]
         self.ADMIN_ID = conf.get("ProtectedAdminId", 3)
-        self.CLEANUP_PRIV = conf.get("CleanupPriv", 15);  self.CLEANUP_NAME = conf.get("CleanupName", f"unused_{self.UID}")
+        self.CLEANUP_PRIV = conf.get("CleanupPriv", 15);  self.CLEANUP_NAME = conf.get("CleanupName", "unusedslot")
 
     def _ipmi(self, sub):
         cmd = ["ipmitool", "-I", self.IFACE, "-H", self.BMC_IP, "-U", self.USERNAME, "-P", self.PASSWORD] + sub
@@ -133,6 +145,10 @@ class IpmiUserDisable(BmcWebTestBase):
                     admin_id = uid
                     break
 
+        # 注（issue/9 真机验证反馈）：默认管理员用户不能被禁用是基本约束；若 BMC 未拦截
+        # 本次"主动尝试 disable Admin"的反向测试，必须验证 enable 恢复是否真正成功，
+        # 不能静默信任恢复命令的返回码就结束——一旦恢复失败且未被发现，Admin 账号会
+        # 被永久禁用，波及后续所有测试及实际业务管理权限。
         rc, out, err = self._ipmi(["user", "disable", str(admin_id)])
         fail_expected = rc != 0
         if fail_expected:
@@ -140,9 +156,22 @@ class IpmiUserDisable(BmcWebTestBase):
             steps.append((5, f"protect_admin_id{admin_id}", "PASS", out or err))
         else:
             CommonFunction.print_log("WARNING",
-                f"[反向] disable Admin(ID={admin_id}) rc=0（BMC未拦截，可能厂商不做保护，记WARNING）")
-            steps.append((5, f"protect_admin_id{admin_id}", "WARNING", "BMC未拦截超管disable"))
-            self._ipmi(["user", "enable", str(admin_id)])  # 尝试恢复
+                f"[反向] disable Admin(ID={admin_id}) rc=0（BMC未拦截，可能厂商不做保护），"
+                f"立即尝试恢复并验证恢复结果...")
+            rc_recover, out_recover, err_recover = self._ipmi(["user", "enable", str(admin_id)])
+            if rc_recover == 0:
+                CommonFunction.print_log("WARNING",
+                    f"[反向] BMC未拦截超管disable，但已成功恢复 Admin(ID={admin_id})，"
+                    f"记WARNING（不是所有厂商都保护超管disable）")
+                steps.append((5, f"protect_admin_id{admin_id}", "WARNING", "BMC未拦截超管disable，已验证恢复成功"))
+            else:
+                CommonFunction.print_log("ERROR",
+                    f"[反向] ⚠️ 严重：BMC未拦截超管disable，且 enable 恢复失败！"
+                    f"（rc={rc_recover}，{out_recover or err_recover}）Admin(ID={admin_id}) 账号"
+                    f"可能已被永久禁用，需人工介入立即恢复，避免影响后续测试及实际业务管理权限！")
+                steps.append((5, f"protect_admin_id{admin_id}", "FAIL",
+                    f"BMC未拦截超管disable且恢复失败：enable rc={rc_recover}，{out_recover or err_recover}"))
+                all_pass = False
 
         # cleanup
         self._ipmi(["user", "set", "name", str(self.UID), self.CLEANUP_NAME])

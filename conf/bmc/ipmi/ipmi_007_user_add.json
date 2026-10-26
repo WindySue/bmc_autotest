@@ -22,6 +22,6 @@
         },
         "WaitAfterOpSec": 2,
         "CleanupPriv": 15,
-        "CleanupName": "unused_5"
+        "CleanupName": "unusedslot"
     }
 }

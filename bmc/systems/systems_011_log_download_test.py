@@ -7,6 +7,14 @@ Update:
 2026/04/22: 新增
 2026/10/16: SDK 1.3.0 适配 - 标准接口改用 collect_and_download_diagnostic_data()
   （SDK 1.3.0 已封装），URI 由 SDK 自动发现；OEM 定制接口仍走 conf 配置（issue/8）
+2026/10/26: 修复误判通过风险（思路源自上游 PR #10 / commit 84f4b2e）——
+  1. 补传 output_path：SDK 下载的日志包留存到 log 目录（原落在临时目录用完即弃，
+     测试无证据留存）；
+  2. 下载后校验文件存在且非空（原"调用不抛异常"即 PASS，BMC 返回空包/损坏包
+     时误判通过，与 web_012 同源问题）；
+  3. DiagnosticDataType 默认值由硬编码 "Manager" 改为 None（SDK 对 None 使用
+     厂商默认值：OEM 可用时用 OEM，否则 Manager），避免部分厂商不接受
+     "Manager" 类型导致标准接口被误判失败。
 
 校验策略：
 
@@ -137,12 +145,25 @@ class LogDownloadTest(BmcTestBase):
         self._init_client()
 
         # ── Step 1：标准接口（SDK 1.3.0 类型化接口）─────────────────────────
+        # 修复说明（issue/9，思路源自上游 PR #10 / commit 84f4b2e）：
+        # 1. 原调用未传 output_path——SDK 下载的日志包落在临时目录，用完即弃，
+        #    测试无法留存证据，且"下载成功"无从核验；
+        # 2. 原调用未校验下载文件存在且非空——BMC 返回空包/损坏包时照样 PASS
+        #    （与 web_012 同源的误判通过风险）；
+        # 3. DiagnosticDataType 由硬编码 "Manager" 改为 None——SDK 对 None 使用
+        #    厂商默认值（OEM 可用时用 OEM，否则 Manager），避免部分厂商 BMC
+        #    不接受 "Manager" 类型导致标准接口被误判失败。
         CommonFunction.print_log("INFO", "Step 1：尝试标准 Redfish 一键日志接口（SDK collect_and_download_diagnostic_data）")
         standard_ok = False
         try:
-            self.client.collect_and_download_diagnostic_data(
-                diagnostic_data_type=self.STANDARD_BODY.get("DiagnosticDataType", "Manager"),
+            downloaded_path = self.client.collect_and_download_diagnostic_data(
+                output_path=os.path.join(self.LOG_DIR, "diagnostic_bundle.tar"),
+                diagnostic_data_type=self.STANDARD_BODY.get("DiagnosticDataType"),
             )
+            if not os.path.isfile(downloaded_path) or os.path.getsize(downloaded_path) == 0:
+                raise RuntimeError(f"下载的日志文件不存在或为空：{downloaded_path}")
+            CommonFunction.print_log("INFO",
+                f"[标准接口] 采集下载成功，文件={downloaded_path}，大小={os.path.getsize(downloaded_path)} bytes")
             standard_ok = True
         except RedfishException as e:
             CommonFunction.print_log("INFO", f"[标准接口] SDK 调用失败：{str(e)[:200]}")

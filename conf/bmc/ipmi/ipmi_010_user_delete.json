@@ -14,7 +14,7 @@
         "TestUserPassword": "Del@Test2024",
         "TestUserPriv": 2,
         "WaitAfterOpSec": 2,
-        "CleanupName": "unused_5",
+        "CleanupName": "unusedslot",
         "CleanupPriv": 15,
         "ProtectedUserIds": [
             1,

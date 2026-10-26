@@ -5,6 +5,8 @@ Date: 2026/04/27
 Usage: python3 bmc/managers_002_network_protocol_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/27: 新增，BMC 网络协议信息检查（HTTP/HTTPS/SSH/IPMI/SNMP/KVM 端口及启用状态）
+2026/10/26: 修复真机验证反馈 - 业务侧明确不使用 HTTP，与 managers_006/006b 保持一致，
+            移除 HTTP 检查项，只保留 HTTPS/SSH/IPMI/SNMP/KVM。
 """
 
 import os
@@ -24,13 +26,14 @@ class Managers002NetworkProtocolCheck(BmcTestBase):
 
     用例编号：Redfish_Managers_002
     检查项（等价类：每个协议均有 port 和 protocol_enabled 字段）：
-    - http: port > 0, protocol_enabled 有值
     - https: port > 0, protocol_enabled 有值
     - ssh: port > 0, protocol_enabled 有值
     - ipmi: port > 0, protocol_enabled 有值
     - snmp: port > 0, protocol_enabled 有值
     - kvmip: port > 0, protocol_enabled 有值
     - host_name 非空
+
+    注：业务侧明确不使用 HTTP，故不再检查 HTTP 协议（与 managers_006/006b 一致）。
     """
 
     def __init__(self, case: str):
@@ -77,7 +80,6 @@ class Managers002NetworkProtocolCheck(BmcTestBase):
                 test.print_log("ERROR", "host_name 为空")
 
             proto_attrs = [
-                ("http", "HTTP"),
                 ("https", "HTTPS"),
                 ("ssh", "SSH"),
                 ("ipmi", "IPMI"),

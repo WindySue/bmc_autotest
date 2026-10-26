@@ -11,10 +11,10 @@
         "QueryChannel": 1,
         "TestUserId": 5,
         "InitName": "modtestinit",
-        "InitPassword": "Init@Test2024",
+        "InitPassword": "Init@Tst24",
         "InitPriv": 2,
         "ModifyNameTo": "modtestfinal",
-        "ModifyPasswordTo": "Final@Test2024",
+        "ModifyPasswordTo": "Fin@Test24",
         "ModifyPrivSequence": [
             2,
             3,
@@ -29,6 +29,6 @@
         },
         "WaitAfterOpSec": 2,
         "CleanupPriv": 15,
-        "CleanupName": "unused_5"
+        "CleanupName": "unusedslot"
     }
 }

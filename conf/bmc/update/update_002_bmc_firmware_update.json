@@ -1,13 +1,28 @@
 {
+    "_comment": "BMC 固件刷新配置（issue/9 厂商分段结构，思路源自上游 PR #6）。参数取值优先级：CLI > vendors.{厂商} 段 > default 段 > 顶层。仅厂商相关参数（Targets/凭据等）放厂商段，通用参数（ImageURI/Protocol）留顶层/default。Vendor 留空则 SDK VendorDetector 自动探测，探测失败脚本终止并提示 --vendor 指定。",
     "Update002BmcFirmwareUpdate": {
         "TestName": "BMC 固件版本刷新功能测试",
         "TestNum": "Redfish_UpdateService_002",
         "LogBasename": "update_002_bmc_firmware_update",
+        "BMC_IP": "",
+        "UserName": "",
+        "PassWord": "",
+        "Vendor": "",
         "Protocol": "HTTP",
         "ImageURI": "",
         "DefaultImageURI": "",
-        "BMC_IP": "",
-        "UserName": "",
-        "PassWord": ""
+        "default": {
+            "_comment": "所有厂商共用的默认值，厂商段未配置的键回退到这里",
+            "PreserveConf": false
+        },
+        "vendors": {
+            "_comment": "厂商相关参数分段。enginetech(安擎) 必须显式配置 Targets（SDK 策略禁止自动推导）；ImageUser/ImagePass 为文件服务器(镜像源)凭据，写入 SimpleUpdate 根级 Username/Password",
+            "enginetech": {
+                "Targets": "",
+                "ImageUser": "",
+                "ImagePass": "",
+                "PreserveConf": false
+            }
+        }
     }
 }
