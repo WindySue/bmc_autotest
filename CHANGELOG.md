@@ -10,7 +10,7 @@
 
 ## [Unreleased]
 
-## [1.1.0] — 2026-10-26
+## [1.3.0] — 2026-10-26
 
 真机验证反馈批量修复 + 上游 PR 可用点吸收（issue/9）。
 基于多厂商真机验证（通算/存储/GPU 机型）反馈的 9 项脚本缺陷修复，
@@ -97,6 +97,17 @@
   ipmi 移除 ipmi_012；systems_005 超时 5400→8000s、ipmi_001 新增 1000s。
 - systems_005/007、ipmi_001、event、update、web_012、account 各 conf
   同步新增配置项（均带注释说明）。
+
+### 依赖
+- 将 `redfish-python-sdk` 锁定至 **v1.3.0**（PyPI 最新发布版本，2026-10-12）。
+- SDK 演进路径（增量）：
+  - **v1.3.0**（2026-10-12）：新增 Manager 服务类接口（NTP/Syslog/SNMP/LLDP/DNS/VNC/
+    KVM/Security/VirtualMedia/SOL）、Manager 重置与日志清理（`reset_manager()` /
+    `clear_manager_log()`）、SecureBoot/NetworkInterface/MemoryDomain/MemoryMetrics、
+    固件上传与 BMC 更新（`simple_update()` vendor 路由 + `VendorDetector`）、
+    Telemetry/Composition 全套、`collect_and_download_diagnostic_data()` 一键日志
+    采集下载、`UpdateStrategyRegistry` 厂商更新策略框架。
+  - 完整接口变更见 [`docs/redfish_python_sdk_api.md`](docs/redfish_python_sdk_api.md)。
 
 ### 验证
 
