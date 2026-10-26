@@ -47,7 +47,7 @@ class AccountDeleteTest(BmcTestBase):
     def _load_extra_config(self, conf_section: dict) -> None:
         ta = conf_section["TestAccount"]
         # 加两位随机数字后缀，部分 BMC 不允许下划线，只用纯字母数字以确保兼容性
-        self.TEST_ACCOUNT_USER = ta["UserName"] + str(_random.randint(10, 99))
+        self.TEST_ACCOUNT_USER = ta["UserName"] + "".join(_random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(2))
         self.TEST_ACCOUNT_PASS = ta["Password"]
         self.TEST_ACCOUNT_ROLE = ta["RoleId"]
         self.test_username     = None  # 预初始化，run_test 中实际赋值

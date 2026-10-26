@@ -32,6 +32,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
+from func.sel_log_helper import find_sel_log_service
 
 from redfish_sdk import RedfishClient, RedfishException  # noqa: F401
 
@@ -227,39 +228,35 @@ class SELLogViewCheck(BmcTestBase):
 
     # ── 找 SEL LogService（Systems → Managers fallback）───────────────────────
 
+    def _load_extra_config(self, conf_section: dict) -> None:
+        """可选配置：
+        - LogId：显式指定要检查的 LogService（基类已统一加载为 self.LOG_ID）。
+        - EmptyLogPolicy：条目为空时的处置，FAIL（默认）/ SKIP。
+          SKIP 用于"确为空日志"的干净 BMC，避免硬 FAIL。
+          （issue/9 引入，思路源自上游 PR #13 / commit 13a2591）
+        """
+        super()._load_extra_config(conf_section)  # 基类统一加载 LogId
+        self.EMPTY_LOG_POLICY = (conf_section.get("EmptyLogPolicy") or "FAIL").strip().upper()
+        if self.EMPTY_LOG_POLICY not in ("FAIL", "SKIP"):
+            CommonFunction.print_log("WARNING", f"EmptyLogPolicy={self.EMPTY_LOG_POLICY} 非法，回退 FAIL")
+            self.EMPTY_LOG_POLICY = "FAIL"
+        CommonFunction.print_log("INFO", f"配置 EmptyLogPolicy = {self.EMPTY_LOG_POLICY}")
+
     def _find_sel_log_service(self):
-        """优先从 Systems 获取，失败时 fallback 到 Managers。
+        """委托公共方法实现跨 Systems/Managers 的 SEL 匹配选择。
+
+        修复说明（issue/9 真机验证反馈）：原逻辑在 Systems 侧只要有任意日志服务
+        （哪怕不是 SEL）就直接返回，不会继续去 Managers 侧查找真正的 SEL —— 若厂商
+        把 SEL 放在 Managers、但 Systems 侧恰好有其他日志服务（如审计日志），会错误
+        校验到无关资源。现统一委托 func/sel_log_helper.find_sel_log_service：
+        - 严格 \\bSEL\\b 独立词匹配（避免 "self"/"console" 等子串误命中，
+          issue/8 已确认部分厂商 BMC 用 /Self 命名资源）；
+        - 明确排除与 SEL 并列存在的独立 EventLog 服务；
+        - 支持配置 LogId 显式指定（精确匹配优先于关键字）。
+
         返回 (Log对象, source字符串)，Log 对象已由 SDK 类型化解析。
         """
-        # Step 1: 尝试 Systems
-        try:
-            log_services = self.client.get_system_log_services()
-            if log_services:
-                for svc in log_services:
-                    svc_name = (svc.name or "").lower()
-                    svc_id = (svc.id or "").lower()
-                    if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
-                        return svc, "Systems"
-                # 没找到 SEL，用第一个
-                return log_services[0], "Systems"
-        except Exception as e:
-            CommonFunction.print_log("WARNING", f"Systems Log Services 不可用：{str(e)}")
-
-        # Step 2: Fallback 到 Managers
-        CommonFunction.print_log("INFO", "尝试从 Managers 获取 Log Services")
-        try:
-            log_services = self.client.get_manager_log_services()
-            if log_services:
-                for svc in log_services:
-                    svc_name = (svc.name or "").lower()
-                    svc_id = (svc.id or "").lower()
-                    if "sel" in svc_name or "sel" in svc_id or "system event" in svc_name:
-                        return svc, "Managers"
-                return log_services[0], "Managers"
-        except Exception as e:
-            CommonFunction.print_log("ERROR", f"Managers Log Services 也不可用：{str(e)}")
-
-        return None, None
+        return find_sel_log_service(self.client, self.LOG_ID)
 
     def _get_log_entries(self, log_id, source):
         """根据 source 获取日志条目"""
@@ -307,7 +304,20 @@ class SELLogViewCheck(BmcTestBase):
             return "FAIL", []
 
         if not entries:
-            CommonFunction.print_log("WARNING", f"Log Service '{log_id}' 条目为空，可能尚未产生日志")
+            # 没有可校验的条目：本用例核心是"查看并校验 SEL 条目"，
+            # 0 条被校验不能算通过（避免选错服务/空服务时误报 PASS）。
+            if self.EMPTY_LOG_POLICY == "SKIP":
+                CommonFunction.print_log(
+                    "WARNING",
+                    f"Log Service '{log_id}' 条目为空，按配置 EmptyLogPolicy=SKIP 跳过检查",
+                )
+                return "SKIP", []
+            CommonFunction.print_log(
+                "ERROR",
+                f"Log Service '{log_id}' 条目为空，无日志可校验，检查不通过"
+                f"（如确为空日志且需跳过，请配置 EmptyLogPolicy=SKIP）",
+            )
+            all_results.append(False)
         else:
             CommonFunction.print_log("INFO", f"共获取到 {len(entries)} 条日志条目，开始逐一校验")
             for entry in entries:
@@ -374,6 +384,9 @@ if __name__ == "__main__":
             exit_code = 0
         elif checker.command_check_result == "FAIL":
             exit_code = 2
+        elif checker.command_check_result == "SKIP":
+            # 主动跳过（EmptyLogPolicy=SKIP 且条目为空），runner 识别为 SKIPPED
+            exit_code = 3
         else:
             exit_code = 1
         start_time = time.time()

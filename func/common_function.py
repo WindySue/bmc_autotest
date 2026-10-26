@@ -6,12 +6,54 @@ Usage: 公共函数
 Update:
 2025/06/28：新增
 2026/06/08：精简未使用函数，仅保留 print_log / add_key_value_to_json / find_value_by_key
+2026/10/26：新增跨平台工具（issue/9，思路源自上游 PR #6 / commit 144b591）——
+  is_windows() / ping_cmd() / ipmitool_bin()：Windows 与 Linux 的 ping 参数、
+  ipmitool 可执行名差异统一收敛，供所有脚本复用（原各脚本裸写
+  ["ping", "-c", "1", "-W", "2", host] 在 Windows 下不可用）
 """
 
 import json
 import os
+import subprocess
 import sys
 import time
+
+
+def is_windows() -> bool:
+    """当前是否为 Windows 平台"""
+    return sys.platform.startswith("win")
+
+
+def ping_cmd(host: str, timeout_sec: int = 2) -> list:
+    """构建单次 ping 命令（跨平台）
+
+    Windows 用 -n（次数）/-w（超时，毫秒）；Linux/macOS 用 -c（次数）/-W（超时，秒）。
+    :param host:        目标 IP 或主机名
+    :param timeout_sec: 单次 ping 超时秒数（Windows 内部换算为毫秒）
+    :return: subprocess.run 可用的命令列表
+    """
+    if is_windows():
+        return ["ping", "-n", "1", "-w", str(int(timeout_sec * 1000)), host]
+    return ["ping", "-c", "1", "-W", str(timeout_sec), host]
+
+
+def ping_once(host: str, timeout_sec: int = 2) -> bool:
+    """执行单次 ping，返回是否通（跨平台）"""
+    try:
+        r = subprocess.run(
+            ping_cmd(host, timeout_sec),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def ipmitool_bin() -> str:
+    """ipmitool 可执行名（Windows 下无原生 ipmitool，调用方应先 is_windows() 判断跳过）"""
+    return "ipmitool.exe" if is_windows() else "ipmitool"
+
+
 class CommonFunction:
     """通用工具函数集合
 
@@ -19,6 +61,9 @@ class CommonFunction:
       - print_log()          分级日志打印（ERROR/INFO/DEBUG/WARNING）
       - add_key_value_to_json()  向 JSON 结果文件写入键值对
       - find_value_by_key()  递归搜索字典中指定键的值
+
+    模块级函数（非类方法）：
+      - is_windows() / ping_cmd() / ping_once() / ipmitool_bin()  跨平台工具
     """
 
     def __init__(self):

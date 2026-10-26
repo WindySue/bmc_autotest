@@ -141,7 +141,8 @@ def snapshot_account(client: RedfishClient, username: str) -> "AccountSnapshot |
 #   - 若是预先存在的，则不删除（不改动原始环境）
 # ────────────────────────────────────────────────────────────────────────────────
 
-_GUARD_USERNAME = "bmc_guard_tmp"
+# issue/9：用户名须符合规范（4~16位全英文字母），原 "bmc_guard_tmp" 含下划线，改为纯字母
+_GUARD_USERNAME = "bmcguardtmp"
 _GUARD_PASSWORD = "Guard@Test99"
 
 

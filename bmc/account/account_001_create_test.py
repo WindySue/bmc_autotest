@@ -48,7 +48,7 @@ class AccountCreateTest(BmcTestBase):
         ta = conf_section["TestAccount"]
         # 加两位随机数字后缀，避免 BMC 账号软删除延迟导致 Duplicate username 报错
         # 注意：部分 BMC 不允许用户名含下划线，只用纯字母数字以确保兼容性
-        self.TEST_ACCOUNT_USER    = ta["UserName"] + str(_random.randint(10, 99))
+        self.TEST_ACCOUNT_USER    = ta["UserName"] + "".join(_random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(2))
         self.TEST_ACCOUNT_PASS    = ta["Password"]
         self.TEST_ACCOUNT_ROLE    = ta["RoleId"]
         self.TEST_ACCOUNT_ENABLED = ta["Enabled"]

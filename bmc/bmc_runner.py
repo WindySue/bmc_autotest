@@ -34,11 +34,14 @@ SCRIPT_CONF = os.path.join(os.path.dirname(__file__), '..', 'conf', 'bmc')
 RESULT_BASE = os.path.join(os.path.dirname(__file__), '..', 'result', 'bmc')
 
 # 退出码语义
+# 注：EC_SKIP=3 为脚本主动跳过（如 systems_007 配置 EmptyLogPolicy=SKIP 且条目为空），
+#     与机型差异跳过（SKIPPED）共用同一报告标签（issue/9 引入，思路源自上游 PR #13）
 EC_PASS    = 0
 EC_FAIL    = 2
 EC_ERROR   = 1
 EC_TIMEOUT = -1
-EC_LABELS  = {0: 'PASS', 2: 'FAIL', 1: 'ERROR', -1: 'TIMEOUT', 130: 'INTERRUPTED'}
+EC_SKIP    = 3
+EC_LABELS  = {0: 'PASS', 2: 'FAIL', 1: 'ERROR', -1: 'TIMEOUT', 130: 'INTERRUPTED', 3: 'SKIPPED'}
 
 # ANSI 颜色（终端输出）
 C_GREEN  = '\033[32m'
@@ -49,6 +52,21 @@ C_RESET  = '\033[0m'
 C_BOLD   = '\033[1m'
 
 DEFAULT_SUITE_ORDER = ['chassis', 'systems', 'managers', 'account', 'session', 'update', 'protocol', 'ipmi', 'web', 'event', 'stress']
+
+# ─────────────────────────────────────────────
+# 机型差异用例跳过机制（issue/9）
+# ─────────────────────────────────────────────
+# 并非所有机型都配有 GPU / 存储卡（如通算机型可能两者都没有，存储机型可能没有 GPU）。
+# 这类用例本身的判定标准（资源列表为空即 FAIL）是正确的——真有硬件却检测不到仍应 FAIL；
+# 只是「是否要跑这条用例」属于机型差异，不属于测试逻辑缺陷，因此在 runner 层提供
+# --skip-no-gpu / --skip-no-storage 开关，由执行者按被测机型主动决定是否跳过。
+SKIP_NO_GPU_SCRIPTS = {
+    'systems_006_gpu_check',
+}
+SKIP_NO_STORAGE_SCRIPTS = {
+    'systems_003a_storage_controller_check',
+    'systems_003b_physical_drives_check',
+}
 
 # suite 名称到 conf 子目录的映射
 SUITE_CONF_SUBDIR = {
@@ -241,10 +259,10 @@ def run_script(script_name, bmc_ip, username, password, timeout_sec, log_fh, sui
 # ─────────────────────────────────────────────
 # 报告生成
 # ─────────────────────────────────────────────
-RESULT_ICON = {'PASS': '✅', 'FAIL': '❌', 'ERROR': '⚠️', 'TIMEOUT': '⏱️', 'INTERRUPTED': '🛑', '?': '❓'}
+RESULT_ICON = {'PASS': '✅', 'FAIL': '❌', 'ERROR': '⚠️', 'TIMEOUT': '⏱️', 'INTERRUPTED': '🛑', 'SKIPPED': '⏭️', '?': '❓'}
 RESULT_COLOR_HTML = {
     'PASS': '#52c41a', 'FAIL': '#ff4d4f', 'ERROR': '#fa8c16',
-    'TIMEOUT': '#faad14', 'INTERRUPTED': '#722ed1', '?': '#8c8c8c',
+    'TIMEOUT': '#faad14', 'INTERRUPTED': '#722ed1', 'SKIPPED': '#8c8c8c', '?': '#8c8c8c',
 }
 
 def _suite_stats(records, suite_order):
@@ -254,7 +272,7 @@ def _suite_stats(records, suite_order):
         s = r['suite']
         if s not in suite_map:
             suite_map[s] = {'total': 0, 'PASS': 0, 'FAIL': 0, 'ERROR': 0,
-                            'TIMEOUT': 0, 'WARN_PASS': 0}
+                            'TIMEOUT': 0, 'SKIPPED': 0, 'WARN_PASS': 0}
         suite_map[s]['total'] += 1
         res = r['result']
         suite_map[s][res] = suite_map[s].get(res, 0) + 1
@@ -270,23 +288,34 @@ def generate_markdown(records, meta, out_path):
     n_fail   = sum(1 for r in records if r['result'] == 'FAIL')
     n_err    = sum(1 for r in records if r['result'] in ('ERROR', 'TIMEOUT'))
     n_wp     = sum(1 for r in records if r['result'] == 'PASS' and r.get('has_warning'))
+    n_skip   = sum(1 for r in records if r['result'] == 'SKIPPED')
     suite_stats = _suite_stats(records, meta['suite_order'])
 
     lines = []
     lines.append(f'# BMC 自动化测试报告\n')
     lines.append(f'- **目标 BMC**：{bmc_ip}')
     lines.append(f'- **执行时间**：{ts}')
-    lines.append(f'- **总计**：{total} 条　|　✅ PASS: {n_pass}　|　❌ FAIL: {n_fail}　|　⚠️ ERROR/TIMEOUT: {n_err}　|　🔔 PASS含WARNING: {n_wp}')
+    lines.append(f'- **总计**：{total} 条　|　✅ PASS: {n_pass}　|　❌ FAIL: {n_fail}　|　⚠️ ERROR/TIMEOUT: {n_err}　|　🔔 PASS含WARNING: {n_wp}　|　⏭️ 已跳过: {n_skip}')
     lines.append('')
 
     # 分组汇总表
     lines.append('## 分组汇总\n')
-    lines.append('| 分组 | 总数 | PASS | FAIL | ERROR/TO | PASS含WARNING |')
-    lines.append('|:---:|:---:|:---:|:---:|:---:|:---:|')
+    lines.append('| 分组 | 总数 | PASS | FAIL | ERROR/TO | PASS含WARNING | 已跳过 |')
+    lines.append('|:---:|:---:|:---:|:---:|:---:|:---:|:---:|')
     for suite, st in suite_stats:
         err_to = st.get('ERROR', 0) + st.get('TIMEOUT', 0)
-        lines.append(f'| {suite} | {st["total"]} | {st["PASS"]} | {st["FAIL"]} | {err_to} | {st["WARN_PASS"]} |')
+        lines.append(f'| {suite} | {st["total"]} | {st["PASS"]} | {st["FAIL"]} | {err_to} | {st["WARN_PASS"]} | {st.get("SKIPPED", 0)} |')
     lines.append('')
+
+    # ⏭️ 已跳过明细（机型差异）
+    skipped = [r for r in records if r['result'] == 'SKIPPED']
+    if skipped:
+        lines.append('## ⏭️ 已跳过用例（机型差异）\n')
+        lines.append('| 脚本名 | TestNum | 测试名称 | 跳过原因 |')
+        lines.append('|:---|:---|:---|:---|')
+        for r in skipped:
+            lines.append(f'| {r["script"]} | {r["test_num"]} | {r["test_name"]} | {r.get("skip_reason", "")} |')
+        lines.append('')
 
     # 🔔 PASS 含 WARNING 提醒
     warn_pass = [r for r in records if r['result'] == 'PASS' and r.get('has_warning')]
@@ -338,6 +367,7 @@ def generate_html(records, meta, out_path):
     n_fail = sum(1 for r in records if r['result'] == 'FAIL')
     n_err  = sum(1 for r in records if r['result'] in ('ERROR', 'TIMEOUT'))
     n_wp   = sum(1 for r in records if r['result'] == 'PASS' and r.get('has_warning'))
+    n_skip = sum(1 for r in records if r['result'] == 'SKIPPED')
     suite_stats = _suite_stats(records, meta['suite_order'])
 
     def esc(s):
@@ -351,8 +381,18 @@ def generate_html(records, meta, out_path):
             f'<td style="color:#52c41a">{st["PASS"]}</td>'
             f'<td style="color:#ff4d4f">{st["FAIL"]}</td>'
             f'<td style="color:#fa8c16">{err_to}</td>'
-            f'<td style="color:#faad14">{st["WARN_PASS"]}</td></tr>\n'
+            f'<td style="color:#faad14">{st["WARN_PASS"]}</td>'
+            f'<td style="color:#8c8c8c">{st.get("SKIPPED", 0)}</td></tr>\n'
         )
+
+    skip_section = ''
+    for r in records:
+        if r['result'] == 'SKIPPED':
+            skip_section += f'''
+<div class="detail-block skip-block">
+  <div class="detail-title" style="color:#8c8c8c">⏭️ {esc(r["script"])} <span class="badge" style="background:#8c8c8c">SKIPPED</span></div>
+  <div class="detail-meta">TestNum: {esc(r["test_num"])} | {esc(r["test_name"])} | 跳过原因: {esc(r.get("skip_reason",""))}</div>
+</div>'''
 
     warn_section = ''
     for r in records:
@@ -429,6 +469,7 @@ def generate_html(records, meta, out_path):
   .badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
             color: #fff; margin-left: 8px; }}
   .badge-warn {{ background: #faad14; }}
+  .skip-block {{ border-left: 4px solid #8c8c8c; }}
   .meta-info {{ background: #fff; border-radius: 8px; padding: 16px 24px;
                 box-shadow: 0 2px 8px rgba(0,0,0,.08); margin-bottom: 24px; }}
   .meta-info p {{ margin: 4px 0; font-size: 14px; }}
@@ -448,17 +489,20 @@ def generate_html(records, meta, out_path):
     <div class="card"><div class="num" style="color:#ff4d4f">{n_fail}</div><div class="label">❌ FAIL</div></div>
     <div class="card"><div class="num" style="color:#fa8c16">{n_err}</div><div class="label">⚠️ ERROR/TO</div></div>
     <div class="card"><div class="num" style="color:#faad14">{n_wp}</div><div class="label">🔔 PASS含WARNING</div></div>
+    <div class="card"><div class="num" style="color:#8c8c8c">{n_skip}</div><div class="label">⏭️ 已跳过</div></div>
   </div>
 
   <h2>分组汇总</h2>
   <table>
-    <tr><th>分组</th><th>总数</th><th>PASS</th><th>FAIL</th><th>ERROR/TIMEOUT</th><th>PASS含WARNING</th></tr>
+    <tr><th>分组</th><th>总数</th><th>PASS</th><th>FAIL</th><th>ERROR/TIMEOUT</th><th>PASS含WARNING</th><th>已跳过</th></tr>
     {rows_suite}
   </table>
 
   {'<h2>🔔 PASS 含 WARNING 项（需人工确认）</h2>' + warn_section if warn_section else ''}
 
   {'<h2>❌ 失败/异常详情</h2>' + fail_section if fail_section else ''}
+
+  {'<h2>⏭️ 已跳过用例（机型差异）</h2>' + skip_section if skip_section else ''}
 
   <h2>各脚本完整结果</h2>
   <table>
@@ -493,17 +537,18 @@ def generate_excel(records, meta, out_path):
         n_fail = sum(1 for r in records if r['result'] == 'FAIL')
         n_err  = sum(1 for r in records if r['result'] in ('ERROR', 'TIMEOUT'))
         n_wp   = sum(1 for r in records if r['result'] == 'PASS' and r.get('has_warning'))
+        n_skip = sum(1 for r in records if r['result'] == 'SKIPPED')
 
         for label, val in [('总计', total), ('PASS', n_pass), ('FAIL', n_fail),
-                            ('ERROR/TIMEOUT', n_err), ('PASS含WARNING', n_wp)]:
+                            ('ERROR/TIMEOUT', n_err), ('PASS含WARNING', n_wp), ('已跳过', n_skip)]:
             ws1.append([label, val])
         ws1.append([])
 
         suite_stats = _suite_stats(records, meta['suite_order'])
-        ws1.append(['分组', '总数', 'PASS', 'FAIL', 'ERROR/TIMEOUT', 'PASS含WARNING'])
+        ws1.append(['分组', '总数', 'PASS', 'FAIL', 'ERROR/TIMEOUT', 'PASS含WARNING', '已跳过'])
         for suite, st in suite_stats:
             err_to = st.get('ERROR', 0) + st.get('TIMEOUT', 0)
-            ws1.append([suite, st['total'], st['PASS'], st['FAIL'], err_to, st['WARN_PASS']])
+            ws1.append([suite, st['total'], st['PASS'], st['FAIL'], err_to, st['WARN_PASS'], st.get('SKIPPED', 0)])
 
         # ── Sheet2: 完整结果 ──
         ws2 = wb.create_sheet('测试结果')
@@ -513,6 +558,7 @@ def generate_excel(records, meta, out_path):
         COLOR_FILL = {
             'PASS':    'C6EFCE', 'FAIL':    'FFC7CE',
             'ERROR':   'FFEB9C', 'TIMEOUT': 'FFEB9C',
+            'SKIPPED': 'E0E0E0',
         }
         thin = Side(style='thin', color='DDDDDD')
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -585,6 +631,10 @@ def main():
     parser.add_argument('--suite',   default='',  help='指定分组，逗号分隔，如 chassis,ipmi（默认跑除 stress 外所有）')
     parser.add_argument('--only',    default='',  help='只跑某个脚本名（调试用），如 chassis_001_drives_check')
     parser.add_argument('--nostress',action='store_true', help='屏蔽 stress 压测脚本')
+    parser.add_argument('--skip-no-gpu', action='store_true',
+                         help='被测机型无 GPU（如通算/存储机型），跳过 systems_006_gpu_check')
+    parser.add_argument('--skip-no-storage', action='store_true',
+                         help='被测机型无存储卡（如通算/GPU 机型），跳过 systems_003a/003b 存储检查用例')
     args = parser.parse_args()
 
     conf = load_suite_conf()
@@ -618,7 +668,21 @@ def main():
             for script in suites_def.get(suite, []):
                 scripts_to_run.append((suite, script))
 
-    if not scripts_to_run:
+    # 机型差异跳过（issue/9）：--skip-no-gpu / --skip-no-storage
+    skipped_records = []
+    if args.skip_no_gpu or args.skip_no_storage:
+        filtered = []
+        for suite, script in scripts_to_run:
+            if args.skip_no_gpu and script in SKIP_NO_GPU_SCRIPTS:
+                skipped_records.append((suite, script, '机型无 GPU（--skip-no-gpu）'))
+                continue
+            if args.skip_no_storage and script in SKIP_NO_STORAGE_SCRIPTS:
+                skipped_records.append((suite, script, '机型无存储卡（--skip-no-storage）'))
+                continue
+            filtered.append((suite, script))
+        scripts_to_run = filtered
+
+    if not scripts_to_run and not skipped_records:
         print('没有需要执行的脚本，退出。')
         sys.exit(0)
 
@@ -637,6 +701,10 @@ def main():
     cprint(f'  BMC 自动化测试 Runner', C_CYAN)
     cprint(f'  BMC IP : {args.bmc_ip}', C_CYAN)
     cprint(f'  脚本数 : {len(scripts_to_run)}', C_CYAN)
+    if skipped_records:
+        cprint(f'  已跳过 : {len(skipped_records)}（机型差异，见下方明细）', C_YELLOW)
+        for s_suite, s_script, s_reason in skipped_records:
+            cprint(f'    ⏭️  {s_suite}/{s_script} — {s_reason}', C_YELLOW)
     cprint(f'  输出目录: {run_dir}', C_CYAN)
     cprint(f'{"="*60}{C_RESET}')
 
@@ -689,14 +757,34 @@ def main():
             }
             records.append(record)
 
+    # 机型差异跳过的脚本也计入 records（result='SKIPPED'），避免在报告中静默消失
+    for s_suite, s_script, s_reason in skipped_records:
+        if s_suite not in suite_order_seen:
+            suite_order_seen.append(s_suite)
+        s_meta = load_script_meta(s_script, s_suite)
+        records.append({
+            'suite':         s_suite,
+            'script':        s_script,
+            'test_num':      s_meta['TestNum'],
+            'test_name':     s_meta['TestName'],
+            'result':        'SKIPPED',
+            'elapsed':       0.0,
+            'exit_code':     None,
+            'has_warning':   False,
+            'warning_lines': [],
+            'error_lines':   [],
+            'skip_reason':   s_reason,
+        })
+
     # 最终汇总
     n_pass = sum(1 for r in records if r['result'] == 'PASS')
     n_fail = sum(1 for r in records if r['result'] == 'FAIL')
     n_err  = sum(1 for r in records if r['result'] in ('ERROR', 'TIMEOUT'))
     n_wp   = sum(1 for r in records if r['result'] == 'PASS' and r.get('has_warning'))
+    n_skip = sum(1 for r in records if r['result'] == 'SKIPPED')
 
     cprint(f'\n{"="*60}', C_CYAN)
-    cprint(f'  完成！总计={len(records)}  PASS={n_pass}  FAIL={n_fail}  ERROR/TO={n_err}  PASS含WARNING={n_wp}', C_BOLD)
+    cprint(f'  完成！总计={len(records)}  PASS={n_pass}  FAIL={n_fail}  ERROR/TO={n_err}  PASS含WARNING={n_wp}  已跳过={n_skip}', C_BOLD)
     cprint(f'{"="*60}', C_CYAN)
 
     report_meta = {
@@ -708,6 +796,7 @@ def main():
         'fail':        n_fail,
         'error':       n_err,
         'warn_pass':   n_wp,
+        'skipped':     n_skip,
     }
 
     # 写 summary.json

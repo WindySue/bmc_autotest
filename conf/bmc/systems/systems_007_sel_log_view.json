@@ -5,6 +5,10 @@
         "LogBasename": "systems_007_sel_log_view",
         "BMC_IP": "",
         "UserName": "",
-        "PassWord": ""
+        "PassWord": "",
+        "_comment_LogId": "可选：显式指定要检查的 LogService Id（如 SEL），留空则按关键字自动匹配（issue/9 引入，思路源自上游 PR #13）",
+        "LogId": "",
+        "_comment_EmptyLogPolicy": "条目为空时的处置：FAIL（默认，0条被校验不算通过，防误选空服务假PASS）/ SKIP（确为空日志的干净 BMC 跳过检查）",
+        "EmptyLogPolicy": "FAIL"
     }
 }

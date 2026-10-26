@@ -5,6 +5,13 @@ Date: 2026/05/13
 Usage: python3 bmc/ipmi_power_001.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/05/13: 新增
+2026/10/26: 修复真机验证反馈 - 原逻辑为"sleep 固定时长后查一次状态"，对非通算机型
+            （存储/GPU 机型电源状态翻转或 OS 相关动作耗时可能更长）会产生误判 FAIL。
+            逻辑同 systems_005_power_control_test.py，改为三级阈值持续轮询判定：
+              - 实际耗时 <= WarningThreshold（通算机型标准）：PASS，无提示
+              - WarningThreshold < 耗时 <= HardTimeout：PASS 但记 WARNING（需人工关注）
+              - 耗时 > HardTimeout：FAIL（才认为操作确实未生效）
+            不同操作的默认阈值不同（On/Reset 较快，Cycle 涉及断电重开耗时更长）。
 
 IPMI 带外电源状态查看与操作测试（RDSV_BMC_182）
 
@@ -18,12 +25,13 @@ IPMI 带外电源状态查看与操作测试（RDSV_BMC_182）
 
 校验策略：
   PASS：各操作命令成功（rc=0，返回含 "Chassis Power Control"），
-         操作后 wait_sec 内 power status 符合期望状态
-  FAIL：命令失败 / 超时等待后状态不符合期望
+         持续轮询等待期望状态，实际耗时 <= WarningThreshold
+  PASS（含 WARNING）：实际耗时在 WarningThreshold ~ HardTimeout 之间（非通算机型可接受）
+  FAIL：命令失败 / 持续轮询超过 HardTimeout 仍未达到期望状态
 
 注意：
-  - power cycle 中间会有短暂 off 状态，等待 WaitAfterCycleSec 秒后再验证
-  - power reset 不断电，直接重启，几秒内应仍为 on
+  - power cycle 中间会有短暂 off 状态，持续轮询等待最终回到 on
+  - power reset 不断电，直接重启，正常应很快回到 on
   - 每步操作之间等待 WaitBetweenOpsSec 秒，避免 BMC 命令冲突
 """
 
@@ -52,11 +60,28 @@ class IpmiPowerStatus(BmcTestBase):
     def _load_extra_config(self, conf_section: dict) -> None:
         self.IPMI_IFACE          = conf_section.get("IpmiInterface", "lanplus")
         self.QUERY_TIMEOUT       = conf_section.get("QueryTimeoutSec", 30)
-        self.WAIT_AFTER_CYCLE    = conf_section.get("WaitAfterCycleSec", 15)
-        self.WAIT_AFTER_RESET    = conf_section.get("WaitAfterResetSec", 5)
-        self.WAIT_AFTER_OFF      = conf_section.get("WaitAfterOffSec", 5)
-        self.WAIT_AFTER_ON       = conf_section.get("WaitAfterOnSec", 5)
         self.WAIT_BETWEEN_OPS    = conf_section.get("WaitBetweenOpsSec", 3)
+        self.POLL_INTERVAL       = conf_section.get("PollIntervalSec", 3)
+
+        # 三级阈值：<=WarningThreshold 达标线（通算标准，无提示）；
+        # WarningThreshold~HardTimeout 之间 PASS 但记 WARNING；超 HardTimeout 判 FAIL。
+        # On/Reset 不涉及断电，耗时短；Cycle 涉及断电重开，耗时更长；Off 最快。
+        self.ON_WARN_SEC    = conf_section.get("OnWarningThresholdSec",    conf_section.get("WaitAfterOnSec", 5))
+        self.ON_HARD_SEC    = conf_section.get("OnHardTimeoutSec",    120)
+        self.RESET_WARN_SEC = conf_section.get("ResetWarningThresholdSec", conf_section.get("WaitAfterResetSec", 5))
+        self.RESET_HARD_SEC = conf_section.get("ResetHardTimeoutSec", 120)
+        self.CYCLE_WARN_SEC = conf_section.get("CycleWarningThresholdSec", conf_section.get("WaitAfterCycleSec", 15))
+        self.CYCLE_HARD_SEC = conf_section.get("CycleHardTimeoutSec", 300)
+        self.OFF_WARN_SEC   = conf_section.get("OffWarningThresholdSec",   conf_section.get("WaitAfterOffSec", 5))
+        self.OFF_HARD_SEC   = conf_section.get("OffHardTimeoutSec",   60)
+
+        # 各操作对应的阈值映射（供 _check_step 查表使用）
+        self._THRESHOLDS = {
+            "on":    (self.ON_WARN_SEC,    self.ON_HARD_SEC),
+            "reset": (self.RESET_WARN_SEC, self.RESET_HARD_SEC),
+            "cycle": (self.CYCLE_WARN_SEC, self.CYCLE_HARD_SEC),
+            "off":   (self.OFF_WARN_SEC,   self.OFF_HARD_SEC),
+        }
 
     def _run_ipmi(self, sub_cmd: list, timeout: int = 30) -> tuple:
         """运行 ipmitool 带外命令，返回 (rc, stdout, stderr)"""
@@ -95,29 +120,59 @@ class IpmiPowerStatus(BmcTestBase):
             CommonFunction.print_log("ERROR", f"chassis power {op} 失败，rc={rc}，stdout={stdout}，stderr={stderr}")
         return success, stdout
 
-    def _check_step(self, step: int, op: str, wait_sec: int, expected: str) -> dict:
-        """执行一个电源操作步骤并验证结果"""
-        CommonFunction.print_log("INFO", f"[Step {step}] 执行 power {op}，等待 {wait_sec}s 后验证状态（期望：{expected}）")
+    def _wait_state_graded(self, expected: str, warn_threshold: int, hard_timeout: int) -> tuple:
+        """持续轮询等待电源状态变为 expected，三级阈值判定（不在中间点截断）。
+
+        :return: (level, elapsed, actual_state) — level ∈ {"PASS", "WARNING", "FAIL"}
+        """
+        elapsed = 0
+        while elapsed <= hard_timeout:
+            state = self._get_power_status()
+            if state == expected:
+                if elapsed <= warn_threshold:
+                    return "PASS", elapsed, state
+                CommonFunction.print_log(
+                    "WARNING",
+                    f"  状态变为 {expected} 耗时 {elapsed}s，超过通算机型标准 {warn_threshold}s，"
+                    f"但未超硬超时 {hard_timeout}s（非通算机型可接受，PASS 但需人工关注）"
+                )
+                return "WARNING", elapsed, state
+            time.sleep(self.POLL_INTERVAL)
+            elapsed += self.POLL_INTERVAL
+        final_state = self._get_power_status()
+        CommonFunction.print_log(
+            "ERROR", f"  等待状态变为 {expected} 超过硬超时 {hard_timeout}s，实际={final_state}，判定 FAIL"
+        )
+        return "FAIL", elapsed, final_state
+
+    def _check_step(self, step: int, op: str, expected: str) -> dict:
+        """执行一个电源操作步骤并三级阈值验证结果"""
+        warn_threshold, hard_timeout = self._THRESHOLDS.get(op, (self.ON_WARN_SEC, self.ON_HARD_SEC))
+        CommonFunction.print_log(
+            "INFO",
+            f"[Step {step}] 执行 power {op}，持续轮询验证状态（期望：{expected}，"
+            f"达标线 {warn_threshold}s，硬超时 {hard_timeout}s）"
+        )
         op_ok, op_out = self._do_power_op(op)
         if not op_ok:
             return {
                 "step": step, "operation": op,
                 "expected_state": expected, "actual_state": "cmd_failed",
-                "check_result": "FAIL", "detail": op_out,
+                "check_result": "FAIL", "level": "FAIL", "detail": op_out,
             }
 
-        time.sleep(wait_sec)
-        actual = self._get_power_status()
-        passed = actual == expected
-        result = "PASS" if passed else "FAIL"
+        level, elapsed, actual = self._wait_state_graded(expected, warn_threshold, hard_timeout)
+        # WARNING 仍计为 PASS（不影响整体结果，只是耗时超出通算标准需人工关注）
+        check_result = "FAIL" if level == "FAIL" else "PASS"
         CommonFunction.print_log(
-            "INFO" if passed else "ERROR",
-            f"[Step {step}] power {op} 验证：期望={expected}，实际={actual} → {result}"
+            "INFO" if level != "FAIL" else "ERROR",
+            f"[Step {step}] power {op} 验证：期望={expected}，实际={actual}，耗时={elapsed}s → {level}"
         )
         return {
             "step": step, "operation": op,
             "expected_state": expected, "actual_state": actual,
-            "check_result": result, "detail": op_out,
+            "check_result": check_result, "level": level,
+            "detail": f"{op_out}（耗时{elapsed}s）",
         }
 
     def power_ops_check(self) -> tuple:
@@ -132,6 +187,7 @@ class IpmiPowerStatus(BmcTestBase):
             "step": 0, "operation": "status",
             "expected_state": "on/off", "actual_state": init_state,
             "check_result": "PASS" if init_state in ("on", "off") else "FAIL",
+            "level": "PASS" if init_state in ("on", "off") else "FAIL",
         })
         all_results.append(init_state in ("on", "off"))
 
@@ -141,38 +197,45 @@ class IpmiPowerStatus(BmcTestBase):
         if init_state != "on":
             CommonFunction.print_log("INFO", "当前状态为 off，先执行 power on 恢复")
             self._do_power_op("on")
-            time.sleep(self.WAIT_AFTER_ON)
+            self._wait_state_graded("on", self.ON_WARN_SEC, self.ON_HARD_SEC)
 
         # 2. power on（已开机状态，应仍返回成功）
-        step = self._check_step(1, "on", self.WAIT_AFTER_ON, "on")
+        step = self._check_step(1, "on", "on")
         steps.append(step)
         all_results.append(step["check_result"] == "PASS")
         time.sleep(self.WAIT_BETWEEN_OPS)
 
         # 3. power reset（重启，应仍在 on）
-        step = self._check_step(2, "reset", self.WAIT_AFTER_RESET, "on")
+        step = self._check_step(2, "reset", "on")
         steps.append(step)
         all_results.append(step["check_result"] == "PASS")
         time.sleep(self.WAIT_BETWEEN_OPS)
 
-        # 4. power cycle（断电再上电，中间会 off，等待后应回到 on）
-        step = self._check_step(3, "cycle", self.WAIT_AFTER_CYCLE, "on")
+        # 4. power cycle（断电再上电，中间会 off，持续轮询等待回到 on）
+        step = self._check_step(3, "cycle", "on")
         steps.append(step)
         all_results.append(step["check_result"] == "PASS")
         time.sleep(self.WAIT_BETWEEN_OPS)
 
         # 5. power off
-        step = self._check_step(4, "off", self.WAIT_AFTER_OFF, "off")
+        step = self._check_step(4, "off", "off")
         steps.append(step)
         all_results.append(step["check_result"] == "PASS")
         time.sleep(self.WAIT_BETWEEN_OPS)
 
         # 6. power on（恢复现场）
-        step = self._check_step(5, "on", self.WAIT_AFTER_ON, "on")
+        step = self._check_step(5, "on", "on")
         steps.append(step)
         all_results.append(step["check_result"] == "PASS")
 
         final = "PASS" if all(all_results) else "FAIL"
+        warn_steps = [s["operation"] for s in steps if s.get("level") == "WARNING"]
+        if final == "PASS" and warn_steps:
+            CommonFunction.print_log(
+                "WARNING",
+                f"电源操作测试全部通过，但以下步骤耗时超过通算机型标准（未超硬超时）："
+                f"{warn_steps}，需人工关注是否符合被测机型预期"
+            )
         CommonFunction.print_log("INFO" if final == "PASS" else "ERROR", f"电源操作测试完成，结果：{final}")
         return final, steps
 

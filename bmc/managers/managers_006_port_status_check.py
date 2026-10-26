@@ -5,6 +5,9 @@ Date: 2026/04/27
 Usage: python3 bmc/managers_006_port_status_check.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/27: 新增，BMC 关键服务端口状态检查（HTTPS/SSH/IPMI/KVM 端口合法性 + 启用状态）
+2026/10/23: 修复真机验证反馈 - KVM/IP 端口无 DMTF/IANA 官方标准端口规定（不同厂商自定义
+            端口不同，不同于 HTTPS=443/SSH=22/IPMI=623 这类公认标准端口），不应硬编码
+            7578 做精确匹配校验，改为仅校验端口存在且为合法正整数（1-65535）。
 """
 
 import os
@@ -19,12 +22,16 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-# 各协议标准端口（等价类：标准端口值；边界：0 / 负值为 FAIL）
+# 有官方标准端口规定的协议（IANA 公认标准端口，等价类：标准端口值；边界：0/负值为 FAIL）
 EXPECTED_PORTS = {
     "https": 443,
     "ssh": 22,
     "ipmi": 623,
-    "kvmip": 7578,
+}
+
+# 无官方标准端口规定的协议（厂商自定义，仅校验「存在且为合法端口」，不做精确匹配）
+NO_STANDARD_PORT_PROTOCOLS = {
+    "kvmip",
 }
 
 class Managers006PortStatusCheck(BmcTestBase):
@@ -32,10 +39,10 @@ class Managers006PortStatusCheck(BmcTestBase):
 
     用例编号：Redfish_Managers_006
     检查项（等价类/边界）：
-    - HTTPS port == 443（标准端口）
-    - SSH port == 22（标准端口）
-    - IPMI port == 623（标准端口）
-    - KVM/IP port == 7578（BMC 厂商约定端口）
+    - HTTPS port == 443（IANA 标准端口）
+    - SSH port == 22（IANA 标准端口）
+    - IPMI port == 623（IANA 标准端口）
+    - KVM/IP：无官方标准端口规定，仅校验 port 存在且为合法正整数（1-65535），不做精确匹配
     - 以上各协议 protocol_enabled 字段存在
     - 各端口值为正整数（边界：0 / None 为 FAIL）
     """
@@ -61,7 +68,10 @@ class Managers006PortStatusCheck(BmcTestBase):
             )
             np = self.client.get_network_protocol()
 
-            for attr, expected_port in EXPECTED_PORTS.items():
+            all_protocols = dict(EXPECTED_PORTS)
+            all_protocols.update({p: None for p in NO_STANDARD_PORT_PROTOCOLS})
+
+            for attr, expected_port in all_protocols.items():
                 val_str = str(getattr(np, attr, None) or "")
                 test.print_log("INFO", f"{attr.upper()}: {val_str}")
 
@@ -78,19 +88,26 @@ class Managers006PortStatusCheck(BmcTestBase):
 
                 port_info[attr.upper()] = val_str
 
-                # port == 期望值（等价类：标准端口）
-                ok = port_val == expected_port
-                checks.append((f"{attr.upper()} port == {expected_port}", ok))
-                if not ok:
-                    test.print_log("ERROR", f"{attr.upper()} port 异常，期望 {expected_port}，实际 {port_val}")
+                if attr in NO_STANDARD_PORT_PROTOCOLS:
+                    # 无官方标准端口规定（厂商自定义），不做精确匹配，仅校验存在且合法
+                    ok = port_val is not None and 0 < port_val <= 65535
+                    checks.append((f"{attr.upper()} port 存在且合法（无官方标准端口，不做精确匹配）", ok))
+                    if not ok:
+                        test.print_log("ERROR", f"{attr.upper()} port 不存在或不合法：{port_val}")
+                else:
+                    # port == 期望值（等价类：IANA 标准端口）
+                    ok = port_val == expected_port
+                    checks.append((f"{attr.upper()} port == {expected_port}", ok))
+                    if not ok:
+                        test.print_log("ERROR", f"{attr.upper()} port 异常，期望 {expected_port}，实际 {port_val}")
 
-                # port 为正整数（边界）
-                ok = port_val is not None and port_val > 0
-                checks.append((f"{attr.upper()} port 为正整数", ok))
-                if not ok:
-                    test.print_log("ERROR", f"{attr.upper()} port 非正整数：{port_val}")
+                    # port 为正整数（边界）
+                    ok = port_val is not None and port_val > 0
+                    checks.append((f"{attr.upper()} port 为正整数", ok))
+                    if not ok:
+                        test.print_log("ERROR", f"{attr.upper()} port 非正整数：{port_val}")
 
-                # protocol_enabled 字段存在
+                # protocol_enabled 字段存在（两类协议均需校验）
                 ok = enabled_exists
                 checks.append((f"{attr.upper()} protocol_enabled 字段存在", ok))
                 if not ok:

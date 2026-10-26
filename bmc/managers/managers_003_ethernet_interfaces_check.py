@@ -7,6 +7,12 @@ Update:
 2026/04/27: 新增，BMC 网口信息检查（曾用 get_raw 绕过 SDK pydantic NameServers=null 解析 bug）
 2026/06/23: 改用 redfish_sdk v1.1.0 get_manager_ethernet_interfaces() 类型化接口；
             原 pydantic 解析 bug 已随 SDK 升级修复，去除文件 _ 前缀恢复执行
+2026/10/23: 修复真机验证反馈 - 原脚本未区分 Detect 口与 Sharelink(NCSI) 口，
+            统一要求 InterfaceEnabled==True 导致 Sharelink 口（我方规范要求默认关闭）
+            被误判 FAIL。识别方式与 managers_026_default_config_check 的
+            _check_sharelink() 保持一致：Oem.Public.NCSIModeSelect 字段存在即为
+            Sharelink 口，该口不再要求 Enabled/IPv4/Speed/Health，仅做基础信息记录；
+            Sharelink 口若意外处于 Enabled 状态记 WARNING 提示（合规判定交由 managers_026）。
 
 数据来源：get_manager_ethernet_interfaces() → List[EthernetInterface]
 """
@@ -28,18 +34,33 @@ MAC_RE = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
 IPV4_RE = re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
 
 
+def _is_sharelink_iface(iface) -> bool:
+    """判断某网口是否为 Sharelink(NCSI) 口。
+
+    与 managers_026_default_config_check._check_sharelink() 保持一致的识别标准：
+    网口 Oem.Public 中存在 "NCSIModeSelect" 字段即视为 Sharelink 口。
+    该字段为厂商扩展，非 Sharelink 口（即 Detect 口）不会携带该字段。
+    """
+    oem = getattr(iface, "Oem", None) or {}
+    oem_pub = oem.get("Public", {}) if isinstance(oem, dict) else {}
+    return isinstance(oem_pub, dict) and "NCSIModeSelect" in oem_pub
+
+
 class Managers003EthernetInterfacesCheck(BmcTestBase):
     """BMC 网口信息检查
 
     用例编号：Redfish_Managers_003
     数据来源：get_manager_ethernet_interfaces()（v1.1.0 类型化 EthernetInterface 模型）
-    检查项（等价类/边界）：
+
+    检查项分两类（等价类：Detect 口 / Sharelink 口，标准不同）：
     - 至少存在 1 个网口（边界：0 个为 FAIL）
-    - MACAddress 格式合法（XX:XX:XX:XX:XX:XX）
-    - InterfaceEnabled 为 true（等价类：合法启用状态）
-    - IPv4Addresses 非空，Address 格式合法
-    - SpeedMbps > 0（边界：0 为异常）
-    - Status.Health == "OK"，Status.State == "Enabled"
+    - Detect 口（非 Sharelink）：
+        MACAddress 格式合法、InterfaceEnabled==True、IPv4Addresses 非空且格式合法、
+        SpeedMbps > 0、Status.Health=="OK"、Status.State=="Enabled"
+    - Sharelink(NCSI) 口：我方规范要求默认关闭，仅做 MAC 格式基础校验；
+        不要求 Enabled/IPv4/Speed/Health（关闭状态下这些字段本就可能为空/0/Disabled）；
+        若意外检测到 InterfaceEnabled==True 仅记 WARNING 提示（不计入 FAIL，
+        合规性判定已由 managers_026_default_config_check 覆盖，避免重复判定标准冲突）。
     """
 
     def __init__(self, case: str):
@@ -74,10 +95,13 @@ class Managers003EthernetInterfacesCheck(BmcTestBase):
             else:
                 for i, iface in enumerate(interfaces):
                     iface_id = iface.id or f"iface_{i}"
+                    is_sharelink = _is_sharelink_iface(iface)
+                    port_type = "Sharelink(NCSI)" if is_sharelink else "Detect"
 
                     # 保存查询到的网口信息
                     iface_data = {
                         "id": iface_id,
+                        "PortType": port_type,
                         "MACAddress": iface.mac_address or "",
                         "InterfaceEnabled": iface.interface_enabled,
                         "IPv4Addresses": [
@@ -88,17 +112,33 @@ class Managers003EthernetInterfacesCheck(BmcTestBase):
                     }
                     eth_info.append(iface_data)
 
-                    # MAC 格式（等价类：合法 MAC，边界：格式不合法为 FAIL）
+                    # MAC 格式（等价类：合法 MAC，边界：格式不合法为 FAIL）——两类接口均需校验
                     mac = iface.mac_address or ""
-                    test.print_log("INFO", f"  [{iface_id}] MACAddress: {mac}")
+                    test.print_log("INFO", f"  [{iface_id}|{port_type}] MACAddress: {mac}")
                     mac_ok = bool(MAC_RE.match(str(mac)))
                     checks.append((f"[{iface_id}] MAC 格式合法", mac_ok))
                     if not mac_ok:
                         test.print_log("ERROR", f"  [{iface_id}] MAC 格式异常：{mac}")
 
-                    # InterfaceEnabled（等价类：true）
                     enabled = iface.interface_enabled
-                    test.print_log("INFO", f"  [{iface_id}] InterfaceEnabled: {enabled}")
+                    test.print_log("INFO", f"  [{iface_id}|{port_type}] InterfaceEnabled: {enabled}")
+
+                    if is_sharelink:
+                        # Sharelink(NCSI) 口：我方规范默认关闭，不要求 Enabled/IPv4/Speed/Health，
+                        # 仅在意外 Enabled 时提示 WARNING（不计入 FAIL，合规判定交由 managers_026）
+                        if enabled is True:
+                            test.print_log(
+                                "WARNING",
+                                f"  [{iface_id}] Sharelink 口当前为 Enabled=True，"
+                                f"我方规范要求默认关闭（最终合规判定见 managers_026_default_config_check）"
+                            )
+                        else:
+                            test.print_log("INFO", f"  [{iface_id}] Sharelink 口已关闭，符合预期")
+                        continue
+
+                    # ── 以下检查项仅适用于 Detect 口 ──
+
+                    # InterfaceEnabled（等价类：true）
                     ok = enabled is True
                     checks.append((f"[{iface_id}] InterfaceEnabled==True", ok))
                     if not ok:

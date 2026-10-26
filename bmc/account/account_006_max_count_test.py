@@ -5,10 +5,13 @@ Date: 2026/04/23
 Usage: python3 bmc/account_006_max_count_test.py -i <bmc_ip> -u <username> -p <password>
 Update:
 2026/04/23: 新增
+2026/10/26: 修复真机验证反馈 - 原用户名 "test_max_001" 含下划线和数字，违反用户名
+            规范（4~16位全英文字母）。改为用两位字母编码（aa/ab/.../az/ba/...）生成
+            纯字母用户名，如 "testmaxaa"（9位，全小写字母）。
 
 校验策略：
   1. 获取当前已有账号数量（基准）
-  2. 循环创建账号（命名 test_max_001、test_max_002 ...），直到 BMC 返回失败（账号数量到达上限）
+  2. 循环创建账号（命名 testmaxaa、testmaxab ... 纯字母编码），直到 BMC 返回失败（账号数量到达上限）
   3. 记录成功创建的账号数量和 BMC 报告的最大账号数
   4. PASS 条件：能触发到明确的上限错误，且最大账号数 >= MIN_ACCOUNT_LIMIT（8）
      FAIL 条件：意外异常中止、无法创建任何账号，或最大账号数 < 8
@@ -32,6 +35,18 @@ from func.bmc_account_function import delete_account_safe
 
 MAX_ATTEMPT = 50       # 防止无限循环，最多尝试创建 50 个
 MIN_ACCOUNT_LIMIT = 8  # 需求 RDSV_BMC_079：BMC 至少支持 8 个本地用户
+
+
+def _idx_to_letters(i: int) -> str:
+    """把从 1 开始的序号转换为两位小写字母编码（aa, ab, ..., az, ba, ...）。
+
+    用于生成符合「4~16位全英文字母」规范的纯字母用户名后缀，
+    支持 26*26=676 种组合，远超 MAX_ATTEMPT（50）。
+    """
+    i -= 1  # 转为 0-based
+    first = chr(ord('a') + (i // 26) % 26)
+    second = chr(ord('a') + i % 26)
+    return first + second
 
 class AccountMaxCountTest(BmcTestBase):
     """Account 创建数量最大化测试
@@ -89,7 +104,7 @@ class AccountMaxCountTest(BmcTestBase):
             # Step 2：循环创建直到失败
             CommonFunction.print_log("INFO", f"Step 2：循环创建账号（最多尝试 {MAX_ATTEMPT} 个）")
             for i in range(1, MAX_ATTEMPT + 1):
-                username = f"test_max_{i:03d}"
+                username = f"testmax{_idx_to_letters(i)}"
                 try:
                     self.client.add_account(Account(
                         UserName=username,

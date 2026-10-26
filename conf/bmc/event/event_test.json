@@ -31,7 +31,11 @@
         "LogBasename": "event_004_get_subscription",
         "BMC_IP": "",
         "UserName": "",
-        "PassWord": ""
+        "PassWord": "",
+        "_comment_TestSubDestination": "订阅列表为空时自动创建临时订阅的 Destination（issue/9，思路源自上游 PR #15）；须为合法 https 地址，不要求可达",
+        "TestSubDestination": "https://192.0.2.99:9999/test",
+        "_comment_TestSubContext": "临时订阅 Context 前缀，运行时追加 uuid 保证唯一，用于精确识别/清理本次创建的订阅",
+        "TestSubContext": "xhs_query_test_sub_do_not_keep"
     },
     "Event006DeleteSubscription": {
         "TestName": "EventService 订阅删除",
@@ -50,7 +54,10 @@
         "BMC_IP": "",
         "UserName": "",
         "PassWord": "",
-        "EventTypes": ["StatusChange", "ResourceUpdated", "ResourceAdded", "ResourceRemoved", "Alert"]
+        "EventTypes": ["StatusChange", "ResourceUpdated", "ResourceAdded", "ResourceRemoved", "Alert"],
+        "_comment_TestMessageId": "modern 模式（SubmitTestEvent 无 EventType 参数）使用的 MessageId；留空则自动从 Base Registry 解析 NumberOfArgs=0 的消息（如 Base.1.x.Success）",
+        "TestMessageId": "",
+        "TestMessageArgs": []
     },
     "Event010SubmitEventNegative": {
         "TestName": "EventService 测试事件上报（反向）",

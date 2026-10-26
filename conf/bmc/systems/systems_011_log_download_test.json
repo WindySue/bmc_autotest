@@ -6,8 +6,9 @@
         "BMC_IP": "",
         "UserName": "",
         "PassWord": "",
+        "_comment_StandardBody": "DiagnosticDataType=null 时 SDK 使用厂商默认值（OEM 可用时用 OEM，否则 Manager），避免部分厂商不接受 Manager 类型导致标准接口误判失败（issue/9，思路源自上游 PR #10）",
         "StandardBody": {
-            "DiagnosticDataType": "Manager"
+            "DiagnosticDataType": null
         },
         "Custom": {
             "Enabled": true,
@@ -25,7 +26,7 @@
         "UserName": "",
         "PassWord": "",
         "StandardBody": {
-            "DiagnosticDataType": "Manager"
+            "DiagnosticDataType": null
         },
         "Custom": {
             "Enabled": true,

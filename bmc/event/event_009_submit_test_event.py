@@ -4,20 +4,33 @@ Author: Fengmian
 Date: 2026/05/14
 Update:
 2026/10/16: SDK 1.3.0 适配 - 硬编码 URI 改为 SDK/ServiceRoot 动态发现（issue/8）
+2026/10/26: 补齐 modern（MessageId）提交路径与响应校验（issue/9，思路源自上游
+            PR #15，判定策略按评审调整）——
+  1. 双路径提交：通过 @Redfish.ActionInfo 探测 SubmitTestEvent 参数形态——
+     modern 模式（无 EventType 参数）用 MessageId 提交（自动从 Base Registry
+     解析 NumberOfArgs=0 的消息，如 Base.1.x.Success；conf 可显式指定
+     TestMessageId/TestMessageArgs）；legacy 模式保持 EventType 循环提交。
+     Registry 不可发现时降级 WARNING 不 FAIL（避免引入新误报源）。
+  2. 响应结构校验（对齐宁畅《订阅规则节选》3.9.8 响应字段）：submit_test_event
+     成功后校验响应 Message 结构（@odata.type/MessageId/Message/Severity），
+     字段缺失记 WARNING 不 FAIL（部分厂商返回 204 无 body 属合规行为）。
+  3. 宁畅文档中的 EventId/EventTimestamp 为厂商私有扩展（非 DSP8010 标准参数，
+     EventTimestamp 规范要求 BMC 自行生成），不做兼容。
 Usage: python3 bmc/event_009_submit_test_event.py -i <bmc_ip> -u <username> -p <password>
 
 测试内容：
   模拟测试事件上报（正向）
   POST EventService.SubmitTestEvent（URI 由 SDK 从 EventService.Actions 动态获取）
-  使用合法的 EventType，验证 BMC 正常响应（不抛出异常）。
+  modern 模式用 MessageId 提交，legacy 模式用合法 EventType 循环提交。
 
   说明：
-  - 此操作会触发 BMC 向已有订阅（含叶尘同学的 10.27.97.201:8444）推送测试事件
+  - 此操作会触发 BMC 向已有订阅推送测试事件
   - 脚本仅验证发送端响应；推送是否到达接收端需接收端另行确认
   - submit_test_event() 成功时无返回，BMC 拒绝（4xx/5xx）时抛出 RedfishException
 
 PASS 标准：
-  合法 EventType 的 submit_test_event() 均不抛出 RedfishException（即 BMC 接受请求）。
+  modern 模式：MessageId 提交不抛异常（响应结构缺失记 WARNING）；
+  legacy 模式：合法 EventType 的 submit_test_event() 均不抛出 RedfishException。
 """
 
 import argparse
@@ -30,8 +43,10 @@ import traceback
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from func.bmc_event_test_base import BmcEventTestBase
-
-
+from func.redfish_event_compat import (
+    message_id_parameters,
+    resolve_test_message,
+)
 
 from redfish_sdk import RedfishClient, RedfishException
 
@@ -45,6 +60,10 @@ DEFAULT_EVENT_TYPES = [
     "StatusChange",
 ]
 
+# SubmitTestEvent 成功响应的 Message 结构字段（宁畅文档 3.9.8 / DSP8010）
+# 字段缺失记 WARNING 不 FAIL：部分厂商返回 204 无 body 属合规行为
+RESPONSE_MESSAGE_FIELDS = ["@odata.type", "MessageId", "Message", "Severity"]
+
 
 class Event009SubmitTestEvent(BmcEventTestBase):
     CASE_KEY      = 'Event009SubmitTestEvent'
@@ -55,56 +74,125 @@ class Event009SubmitTestEvent(BmcEventTestBase):
     CONF_DIR      = 'event'
 
     def _load_extra_config(self, conf: dict) -> None:
-        """加载 event_types 配置，若未配置则使用 Redfish 标准枚举默认值。
+        """加载 event_types / TestMessageId 配置。
 
         配置文件示例（conf/bmc/event/event_test.json）：
             "Event009SubmitTestEvent": {
                 ...
-                "EventTypes": ["Alert", "StatusChange"]
+                "EventTypes": ["Alert", "StatusChange"],
+                "TestMessageId": "",        # modern 模式 MessageId，留空自动从 Base Registry 解析
+                "TestMessageArgs": []       # modern 模式 MessageArgs
             }
         """
         self.event_types = conf.get("EventTypes", DEFAULT_EVENT_TYPES)
+        self.test_message_id = conf.get("TestMessageId") or None
+        self.test_message_args = conf.get("TestMessageArgs", [])
+
+    def _verify_response_message(self, findings: list, label: str) -> None:
+        """校验 SubmitTestEvent 成功响应的 Message 结构（宁畅文档 3.9.8 响应字段）。
+
+        字段缺失记 WARNING 不 FAIL：部分厂商返回 204 无 body 属合规行为，
+        避免引入新误报源。
+        """
+        try:
+            resp = getattr(self.client, "_last_response", None)
+            body = None
+            if resp is not None:
+                body = resp.json() if hasattr(resp, "json") else None
+            if not isinstance(body, dict):
+                self.log.info(f"  ℹ️  {label}: 响应无 JSON body（204 无 body 属合规行为）")
+                return
+            missing = [f for f in RESPONSE_MESSAGE_FIELDS if body.get(f) is None]
+            if missing:
+                self.log.warning(f"  ⚠️  {label}: 响应 Message 结构缺少字段 {missing}（记 WARNING 不 FAIL）")
+                findings.append({"item": f"{label} 响应 Message 结构",
+                                 "result": "WARNING",
+                                 "detail": f"缺少字段：{missing}（204 无 body 属合规，字段缺失需人工关注）"})
+            else:
+                self.log.info(f"  ✅ {label}: 响应 Message 结构完整")
+                findings.append({"item": f"{label} 响应 Message 结构",
+                                 "result": "PASS",
+                                 "detail": "Message 结构字段完整"})
+        except Exception as e:
+            # 响应校验本身失败不影响主判定
+            self.log.info(f"  ℹ️  {label}: 响应结构校验跳过（{e}）")
 
     def run_test(self):
         self.log.info(f"开始：{self.TEST_NAME}（{self.TEST_NUM}）")
-        self.log.info("ℹ️  此操作将向所有订阅（含叶尘同学的 10.27.97.201:8444）推送测试事件")
+        self.log.info("ℹ️  此操作将向所有订阅推送测试事件")
 
         self.client = RedfishClient(self.BMC_IP, self.USERNAME, self.PASSWORD)
 
         # v1.1.0：get_event_service().actions 获取 SubmitTestEvent 的 AllowableValues
+        # 并探测参数形态（legacy=EventType / modern=MessageId）
         allowable = []
+        parameters = None
         try:
             event_service = self.client.get_event_service()
             actions = event_service.actions or {}
             allowable = (actions.get("#EventService.SubmitTestEvent", {})
                                 .get("EventType@Redfish.AllowableValues", []))
             self.log.info(f"  AllowableValues: {allowable}")
+            parameters = message_id_parameters(self.client, event_service)
+            self.log.info(f"  SubmitTestEvent 参数形态："
+                          f"{'legacy（EventType）' if parameters is None else f'modern（{sorted(parameters)}）'}")
         except RedfishException:
             pass
 
         findings = []
         try:
-            for etype in self.event_types:
-                # 若 BMC 声明了 AllowableValues 且不含该 etype，跳过
-                if allowable and etype not in allowable:
-                    self.log.info(f"  ℹ️  EventType={etype!r} 不在 AllowableValues，跳过")
-                    findings.append({"item": f"POST SubmitTestEvent EventType={etype}",
-                                     "result": "PASS",
-                                     "detail": f"不在 AllowableValues，跳过（{allowable}）"})
-                    continue
-
+            # ── modern 模式：MessageId 提交 ─────────────────────────────────
+            if parameters is not None:
                 try:
-                    self.client.submit_test_event(etype)
-                    # submit_test_event 未抛异常即表示 BMC 接受请求
-                    findings.append({"item": f"POST SubmitTestEvent EventType={etype} → 成功",
+                    message_id, message_args = resolve_test_message(
+                        self.client, self.test_message_id, self.test_message_args
+                    )
+                    kwargs = {"message_id": message_id}
+                    if message_args and "MessageArgs" in parameters:
+                        kwargs["message_args"] = message_args
+                    self.client.submit_test_event(**kwargs)
+                    findings.append({"item": "POST SubmitTestEvent（MessageId）→ 成功",
                                      "result": "PASS",
-                                     "detail": "BMC 已接受（submit_test_event 未抛异常）"})
-                    self.log.info(f"  ✅ EventType={etype!r} → 成功")
+                                     "detail": f"BMC 已接受，MessageId={message_id}"})
+                    self.log.info(f"  ✅ MessageId={message_id!r} → 成功")
+                    self._verify_response_message(findings, "MessageId 提交")
+                except ValueError as e:
+                    # Registry 不可发现且未配置 TestMessageId：降级 WARNING 不 FAIL
+                    self.log.warning(f"  ⚠️  modern 模式 MessageId 解析失败：{e}（记 WARNING 不 FAIL）")
+                    findings.append({"item": "POST SubmitTestEvent（MessageId）",
+                                     "result": "WARNING",
+                                     "detail": f"MessageId 解析失败，降级跳过：{e}"})
                 except RedfishException as e:
-                    findings.append({"item": f"POST SubmitTestEvent EventType={etype} → 成功",
+                    findings.append({"item": "POST SubmitTestEvent（MessageId）→ 成功",
                                      "result": "FAIL",
                                      "detail": f"RedfishException: {e}"})
-                    self.log.error(f"  ❌ EventType={etype!r} → RedfishException: {e}")
+                    self.log.error(f"  ❌ MessageId 提交 → RedfishException: {e}")
+                # modern 模式下不再走 EventType 循环（BMC 不接受 EventType 参数）
+
+            # ── legacy 模式：EventType 循环提交 ─────────────────────────────
+            else:
+                for etype in self.event_types:
+                    # 若 BMC 声明了 AllowableValues 且不含该 etype，跳过
+                    if allowable and etype not in allowable:
+                        self.log.info(f"  ℹ️  EventType={etype!r} 不在 AllowableValues，跳过")
+                        findings.append({"item": f"POST SubmitTestEvent EventType={etype}",
+                                         "result": "PASS",
+                                         "detail": f"不在 AllowableValues，跳过（{allowable}）"})
+                        continue
+
+                    try:
+                        self.client.submit_test_event(etype)
+                        # submit_test_event 未抛异常即表示 BMC 接受请求
+                        findings.append({"item": f"POST SubmitTestEvent EventType={etype} → 成功",
+                                         "result": "PASS",
+                                         "detail": "BMC 已接受（submit_test_event 未抛异常）"})
+                        self.log.info(f"  ✅ EventType={etype!r} → 成功")
+                        self._verify_response_message(findings, f"EventType={etype} 提交")
+                    except RedfishException as e:
+                        findings.append({"item": f"POST SubmitTestEvent EventType={etype} → 成功",
+                                         "result": "FAIL",
+                                         "detail": f"RedfishException: {e}"})
+                        self.log.error(f"  ❌ EventType={etype!r} → RedfishException: {e}")
 
         finally:
             self.client.close()

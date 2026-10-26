@@ -3,7 +3,19 @@
 IPMI 带外删除用户（正向 + 超管不可删反向）（RDSV_BMC_081）
 
 IPMI 无真正 delete 命令，逻辑删除 = disable + set name 改占位名 + 降权到 NO ACCESS
-正向：创建测试用户 → 逻辑删除 → 验证在列表中不可用（IPMI Msg=false，priv=NO ACCESS）
+
+Update:
+2026/10/23: 修复真机验证反馈 —
+  1) "IPMI Msg" 列代表的是「该用户是否允许通过 IPMI 消息通道通信」这一独立配置位，
+     与 user disable（阻止该用户登录鉴权）在 IPMI 协议语义上是两个不同的开关，
+     disable 本就不保证会联动改写该字段——不是 BMC 缺陷，而是原判定依据选错了。
+     真正可靠、协议语义正确的"删除生效"证据是 priv 降为 NO ACCESS，故移除
+     ipmi_msg==false 这一判定条件，仅保留 priv_ok 作为删除成功的判定依据。
+  2) 新增前置安全检查：操作前先查询 TestUserId 对应槛位当前状态，若该槛位已存在
+     非预期的真实用户名（不是空槛位，也不是本次测试将使用的用户名或清理占位名），
+     立即中止并判 FAIL，避免测试脚本误覆盖/误删除业务已有的真实用户。
+
+正向：创建测试用户 → 逻辑删除 → 验证在列表中不可用（priv=NO ACCESS）
 反向：尝试 disable 超管用户（ID=3）→ 应失败（返回错误码 0x82）
 
 Usage: python3 bmc/ipmi_user_005.py -i <bmc_ip> -u <user> -p <pass>
@@ -30,7 +42,7 @@ class IpmiUserDelete(BmcWebTestBase):
         self.UID = conf["TestUserId"];  self.UNAME = conf["TestUserName"]
         self.UPASS = conf["TestUserPassword"];  self.UPRIV = conf["TestUserPriv"]
         self.PROTECTED = conf.get("ProtectedUserIds", [1, 2, 3])
-        self.CLEANUP_PRIV = conf.get("CleanupPriv", 15);  self.CLEANUP_NAME = conf.get("CleanupName", f"unused_{self.UID}")
+        self.CLEANUP_PRIV = conf.get("CleanupPriv", 15);  self.CLEANUP_NAME = conf.get("CleanupName", "unusedslot")
 
     def _ipmi(self, sub):
         cmd = ["ipmitool", "-I", self.IFACE, "-H", self.BMC_IP, "-U", self.USERNAME, "-P", self.PASSWORD] + sub
@@ -97,6 +109,38 @@ class IpmiUserDelete(BmcWebTestBase):
             CommonFunction.print_log("INFO" if ok else "ERROR", f"[{item}] {r}: {detail}")
             steps.append((step, item, r, detail));  return ok
 
+        def finalize():
+            self.command_check_result = "PASS" if all_pass else "FAIL"
+            with open(self.csv_path, "a") as f:
+                for step, item, res, detail in steps:
+                    f.write(f'"{step}","{item}","{res}","{detail}"\n')
+            for step, item, res, detail in steps:
+                test.add_key_value_to_json(self.json_path, "detail.cycle",
+                    value={"metrics": f"step{step}_{item}", "value": {"result": res, "detail": detail}})
+            test.add_key_value_to_json(self.json_path, "summary",
+                value={"metrics": self.TEST_NAME, "value": self.command_check_result})
+            test.print_log("INFO", f"{self.TEST_NAME} 完成，结果：{self.command_check_result}")
+
+        # === 前置安全检查：目标槛位须为空/可复用测试槛位，不能是真实业务用户 ===
+        # 避免脚本接下来的"创建→逻辑删除"覆盖掉已有的真实用户配置（即误删）
+        rc0, out0, err0 = self._ipmi(["user", "list", str(self.CHANNEL)])
+        if rc0 != 0:
+            rec(0, "pre_safety_check", False, f"无法查询当前用户列表（{err0}），为安全起见中止测试")
+            all_pass = False
+            finalize()
+            return
+        existing = self._parse_user_list(out0)
+        existing_name = (existing.get(self.UID, {}).get("name") or "").strip()
+        safe_names = {"", self.CLEANUP_NAME.strip().lower(), self.UNAME.strip().lower()}
+        if existing_name and existing_name.lower() not in safe_names:
+            rec(0, "pre_safety_check", False,
+                f"UID={self.UID} 当前已存在用户名 '{existing_name}'（非本测试预期的占位/测试用户名），"
+                f"疑似业务真实用户，为避免误删，测试中止，不执行后续创建/删除操作")
+            all_pass = False
+            finalize()
+            return
+        rec(0, "pre_safety_check", True, f"UID={self.UID} 槛位当前为空/可复用测试槛位（现有名='{existing_name or '(空)'}'），可安全执行测试")
+
         # === 正向：创建 → 逻辑删除 → 验证 ===
         # 创建
         self._ipmi(["user", "set", "name", str(self.UID), self.UNAME])
@@ -115,18 +159,20 @@ class IpmiUserDelete(BmcWebTestBase):
         time.sleep(self.WAIT)
 
         # 验证删除状态
+        # 注：IPMI "Msg" 列代表的是「该用户是否允许通过 IPMI 消息通道通信」这一独立配置位，
+        # 与 disable（阻止登录鉴权）在协议语义上是两个不同的开关，disable 不保证会联动改写
+        # 该字段——不是 BMC 缺陷，而是曾经用 ipmi_msg==false 做判定依据本身就选错了标准。
+        # 真正可靠、协议语义正确的"删除生效"证据是 priv 降为 NO ACCESS，故仅以此判定。
         rc, out, _ = self._ipmi(["user", "list", str(self.CHANNEL)])
         if rc != 0:
             all_pass &= rec(3, "verify_deleted", False, "user list failed")
         else:
             users = self._parse_user_list(out)
             entry = users.get(self.UID, {})
-            # 验证：ipmi_msg=false（不可登录），priv 含 NO ACCESS
-            ipmi_msg_ok = entry.get("ipmi_msg", "").lower() == "false"
-            priv_ok     = "NO ACCESS" in entry.get("priv", "").upper()
-            ok = ipmi_msg_ok and priv_ok
-            all_pass &= rec(3, "verify_deleted", ok,
-                f"ipmi_msg={entry.get('ipmi_msg')}, priv={entry.get('priv')}")
+            priv_ok = "NO ACCESS" in entry.get("priv", "").upper()
+            all_pass &= rec(3, "verify_deleted", priv_ok,
+                f"priv={entry.get('priv')}（期望 NO ACCESS；ipmi_msg={entry.get('ipmi_msg')} 仅供参考，"
+                f"不作为删除生效的判定依据）")
 
         # === 反向：找到名为 Admin 的超管 ID，尝试 disable 应失败 ===
         # 不写死 ID=3，因为浪潮超管是 ID=2，ZTE 是 ID=3
@@ -143,6 +189,9 @@ class IpmiUserDelete(BmcWebTestBase):
             admin_id = self.PROTECTED[0] if self.PROTECTED else 3
             CommonFunction.print_log("WARNING", f"未找到名为 Admin 的用户，fallback 到 ID={admin_id}")
 
+        # 注（issue/9 真机验证反馈）：默认管理员用户不能被禁用是基本约束；若 BMC 未拦截
+        # 本次反向测试，必须验证 enable 恢复是否真正成功，不能静默信任恢复命令的返回码——
+        # 一旦恢复失败且未被发现，Admin 账号会被永久禁用，波及后续所有测试及实际业务。
         rc, out, err = self._ipmi(["user", "disable", str(admin_id)])
         fail_expected = rc != 0
         if fail_expected:
@@ -150,21 +199,24 @@ class IpmiUserDelete(BmcWebTestBase):
             steps.append((4, f"protect_admin_id{admin_id}", "PASS", out or err))
         else:
             CommonFunction.print_log("WARNING",
-                f"[反向] disable 超管 ID={admin_id} rc=0（BMC未拦截，可能厂商不做保护，记WARNING）")
-            steps.append((4, f"protect_admin_id{admin_id}", "WARNING", "BMC未拦截超管disable"))
-            # 尝试恢复（不把这个算FAIL，因为不是所有厂商都保护超管disable）
-            self._ipmi(["user", "enable", str(admin_id)])
+                f"[反向] disable 超管 ID={admin_id} rc=0（BMC未拦截，可能厂商不做保护），"
+                f"立即尝试恢复并验证恢复结果...")
+            rc_recover, out_recover, err_recover = self._ipmi(["user", "enable", str(admin_id)])
+            if rc_recover == 0:
+                CommonFunction.print_log("WARNING",
+                    f"[反向] BMC未拦截超管disable，但已成功恢复 ID={admin_id}，"
+                    f"记WARNING（不是所有厂商都保护超管disable）")
+                steps.append((4, f"protect_admin_id{admin_id}", "WARNING", "BMC未拦截超管disable，已验证恢复成功"))
+            else:
+                CommonFunction.print_log("ERROR",
+                    f"[反向] ⚠️ 严重：BMC未拦截超管disable，且 enable 恢复失败！"
+                    f"（rc={rc_recover}，{out_recover or err_recover}）超管 ID={admin_id} 账号"
+                    f"可能已被永久禁用，需人工介入立即恢复，避免影响后续测试及实际业务管理权限！")
+                steps.append((4, f"protect_admin_id{admin_id}", "FAIL",
+                    f"BMC未拦截超管disable且恢复失败：enable rc={rc_recover}，{out_recover or err_recover}"))
+                all_pass = False
 
-        self.command_check_result = "PASS" if all_pass else "FAIL"
-        with open(self.csv_path, "a") as f:
-            for step, item, res, detail in steps:
-                f.write(f'"{step}","{item}","{res}","{detail}"\n')
-        for step, item, res, detail in steps:
-            test.add_key_value_to_json(self.json_path, "detail.cycle",
-                value={"metrics": f"step{step}_{item}", "value": {"result": res, "detail": detail}})
-        test.add_key_value_to_json(self.json_path, "summary",
-            value={"metrics": self.TEST_NAME, "value": self.command_check_result})
-        test.print_log("INFO", f"{self.TEST_NAME} 完成，结果：{self.command_check_result}")
+        finalize()
 
 if __name__ == "__main__":
     obj = None

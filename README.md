@@ -193,6 +193,8 @@ python3 -m bmc.bmc_runner -i <bmc_ip> -u <username> -p <password>
 | `--suite` | 指定要执行的分组，逗号分隔；不指定则默认执行除 `stress` 外的全部分组 | `--suite chassis,ipmi` |
 | `--only` | 只跑某一个脚本（调试用），自动推断其所属 suite | `--only chassis_001_drives_check` |
 | `--nostress` | 屏蔽 stress 压测类脚本（压测默认耗时 12h，日常验证建议加此参数） | `--nostress` |
+| `--skip-no-gpu` | 被测机型无 GPU（如通算/存储机型），跳过 GPU 检查用例 | `--skip-no-gpu` |
+| `--skip-no-storage` | 被测机型无存储卡（如通算/GPU 机型），跳过存储检查用例 | `--skip-no-storage` |
 
 支持的 suite 分组（见 [`conf/bmc/bmc_runner_suites.json`](conf/bmc/bmc_runner_suites.json)）：
 `chassis` / `systems` / `managers` / `account` / `session` / `update` / `protocol` / `ipmi` / `web` / `event` / `stress`
@@ -280,9 +282,9 @@ Systems资源包含一些硬件的基本信息（主要是CPU、内存和存储�
 |       systems_007_sel_log_view        |      SEL日志查看测试       | Redfish_Systems_007  | get_system_log_services(),get_system_log_service(),get_system_log_entries() |
 |   systems_008_sel_log_add_negative    |     SEL日志增加反向测试      | Redfish_Systems_008  | get_system_log_services()（Log.entries.odata_id）   |
 |  systems_009_sel_log_modify_negative  |     SEL日志修改反向测试      | Redfish_Systems_009  | get_system_log_services(),get_system_log_entries() |
-|  systems_010a_sel_log_clear_positive  |     SEL日志清除正向测试      | Redfish_Systems_010a | get_system_log_service(), clear_system_log()（Systems）/ get_raw()+post()（Managers） |
+|  systems_010a_sel_log_clear_positive  |     SEL日志清除正向测试      | Redfish_Systems_010a | get_system_log_service(), clear_system_log()（Systems）/ clear_manager_log()（Managers） |
 |  systems_010b_sel_log_clear_negative  |     SEL日志清除反向测试      | Redfish_Systems_010b |                         无                          |
-|     systems_011_log_download_test     |       一键日志下载测试       | Redfish_Systems_011  |                         无                          |
+|     systems_011_log_download_test     |       一键日志下载测试       | Redfish_Systems_011  | collect_and_download_diagnostic_data()（含文件非空校验） |
 |                  待定                   |      JBOD硬盘设置测试      | Redfish_Systems_012  |                         无                          |
 |     systems_013_bios_check            |       BIOS基本信息检查      | Redfish_Systems_013  |             get_system()（bios_version）              |
 |   systems_014_html5kvm_test           |   HTML5KVM创建最大化测试（MaxSessions≥2） | Redfish_Systems_014  | get_raw()⚠️ [SDK-GAP]（OEM KVM接口）                  |
@@ -410,8 +412,8 @@ Managers资源主要用来管理BMC自身的功能。
 
 |                      脚本名称                      |          用例名称           |          用例编号           |      redfish_python_sdk接入度       |
 |:------------------------------------------------:|:-----------------------:|:-----------------------:|:----------------------------------:|
-| _update_002_bmc_firmware_update.py | BMC 固件升级测试（SimpleUpdate，HTTP/HTTPS/SFTP） | Redfish_UpdateService_002 | ⏸ 暂缓：待用 simple_update() 重写后启用 |
-| _update_003_bios_firmware_update.py | BIOS 固件升级测试（SimpleUpdate，HTTP/HTTPS/SFTP） | Redfish_UpdateService_003 | ⏸ 暂缓：待用 simple_update() 重写后启用 |
+| update_002_bmc_firmware_update | BMC 固件升级测试（SimpleUpdate，正向+自动恢复；需 --image-uri 手动触发） | Redfish_UpdateService_002 | simple_update()（vendor 自动路由）+ wait_for_task() + reset_manager() |
+| update_003_bios_firmware_update | BIOS 固件升级测试（SimpleUpdate，正向+自动恢复；需 --image-uri 手动触发） | Redfish_UpdateService_003 | simple_update()（vendor 自动路由）+ wait_for_task() |
 
 
 ## **BmcStress 压测资源**
@@ -456,7 +458,7 @@ IPMI 脚本通过带外（OOB）通道验证 BMC 的电源管理、FRU、SEL 日
 | ipmi_009_user_password_rule        | 密码格式规则测试（正向边界）    | RDSV_BMC_080b | 8~12 位含大小写数字特殊字符 |
 | ipmi_010_user_delete               | 删除用户测试（含超管保护验证）   | RDSV_BMC_081 | 超管不可删降级 WARNING |
 | ipmi_011_user_modify               | 修改用户名/密码/权限测试       | RDSV_BMC_082 | 覆盖 USER/OPERATOR/ADMINISTRATOR |
-| ipmi_012_user_disable              | 禁用用户测试（含超管保护验证）   | RDSV_BMC_083 | 超管不可禁降级 WARNING |
+| ipmi_012_user_disable              | 禁用用户测试（已废弃，见脚本头说明）   | RDSV_BMC_083 | ⏸ 已从 runner suite 移除 |
 | ipmi_013_user_session              | 在线用户 Session 查询测试     | RDSV_BMC_084 | create_session 后查询 |
 
 
@@ -484,7 +486,7 @@ Web 脚本通过 Redfish Session（X-Auth-Token）模拟 Web 浏览器行为，�
 | web_009_user_management            | 用户 POST新建→禁用→验证→DELETE清理 | RDSV_BMC_080~083 | 带 If-Match ETag |
 | web_010_sensor_info                | 温度/风扇/电压/PSU 传感器条数检查 | RDSV_BMC_071,072 | |
 | web_011_sel_log                    | SEL 条目数+前3条字段完整性   | RDSV_BMC_100 | |
-| web_012_one_click_log              | 一键日志（LogServices.ExportLogs + OEM降级） | RDSV_BMC_110 | 返回204即PASS |
+| web_012_one_click_log              | 一键日志采集下载（collect_and_download_diagnostic_data + 文件非空校验） | RDSV_BMC_110 | 全 SDK |
 | web_013_kvm_check                  | KVM 服务可达 + MaximumNumberOfSessions≥1 | RDSV_BMC_131 | 别名兼容 |
 | web_014_config_export              | BMC/BIOS 配置可查询验证     | RDSV_BMC_137 | |
 | web_015_lang_switch                | Accept-Language zh/en 双语服务可达 | RDSV_BMC_022 | |

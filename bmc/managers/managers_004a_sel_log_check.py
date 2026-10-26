@@ -7,6 +7,20 @@ Usage: python3 bmc/managers_004a_sel_log_check.py -i <bmc_ip> -u <username> -p <
 Update:
 2026/04/27: 新增，BMC SEL 日志服务检查（LogServices/SEL）
 2026/07/02: 改用 SDK v1.1.1 动态发现的 Log.entries.odata_id，消除硬编码路径
+2026/10/26: 修复真机验证反馈 - 本用例与 systems_007_sel_log_view 都是测 SEL 日志，
+            但不同厂商把 SEL 放在 Managers 侧或 Systems 侧的实现不同；原逻辑只检查
+            Managers 侧，找不到就直接 FAIL，对把 SEL 放在 Systems 侧的厂商是误判
+            （两个用例的 PASS 判定实质应是 OR 关系：SEL 存在于任一侧即算合规，
+            而不是各自独立 AND 要求必须在自己管辖范围内存在）。
+            修复：Managers 侧找不到 SEL 时，进一步探测 Systems 侧是否存在 SEL，
+            若存在则判定为"SEL 由 Systems 侧提供"，本用例 PASS（跳过详细字段
+            校验，交由 systems_007_sel_log_view 负责），不再因厂商实现选择误判 FAIL。
+2026/10/26: SEL 定位逻辑统一委托 func/sel_log_helper.find_sel_log_service
+            （思路源自上游 PR #13 / commit 13a2591）——严格 \\bSEL\\b 独立词匹配
+            （避免 "self"/"console" 等子串误命中，issue/8 已确认部分厂商 BMC
+            用 /Self 命名资源）、明确排除与 SEL 并列存在的独立 EventLog 服务、
+            支持配置 LogId 显式指定；本用例保留"Managers 侧存在 SEL 才做详细
+            字段校验，SEL 仅在 Systems 侧时 PASS 并移交 systems_007"的 OR 判定语义。
 """
 
 import os
@@ -19,6 +33,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
+from func.sel_log_helper import find_sel_log_service
 
 from redfish_sdk import RedfishClient, RedfishException
 
@@ -55,14 +70,35 @@ class Managers004aSelLogCheck(BmcTestBase):
                 password=self.PASSWORD
             )
 
+            # SEL 定位统一委托公共助手（严格 \bSEL\b 匹配 + EventLog 排除 + LogId 支持），
+            # 保留本用例的 OR 判定语义：Managers 侧存在 SEL 才做详细字段校验；
+            # SEL 仅在 Systems 侧时 PASS 并移交 systems_007_sel_log_view。
+            sel_svc, sel_source = find_sel_log_service(self.client, self.LOG_ID)
+
             svcs = self.client.get_manager_log_services()
             target = next((s for s in svcs if getattr(s, 'id', '') == TARGET_LOG_ID), None)
 
-            # 存在性检查（边界）
-            ok = target is not None
-            checks.append((f"LogService '{TARGET_LOG_ID}' 存在", ok))
-            if not ok:
-                test.print_log("ERROR", f"未找到 LogService id='{TARGET_LOG_ID}'，已有：{[getattr(s,'id','') for s in svcs]}")
+            # 存在性检查（边界）—— PASS 判定应是 Managers OR Systems 的关系，
+            # Managers 侧找不到时，用公共助手的跨侧查找结果判断 SEL 是否在 Systems 侧，
+            # 避免厂商实现差异（SEL 放在 Systems 侧）被误判 FAIL
+            if target is None:
+                sel_in_systems = (sel_svc is not None and sel_source == "Systems")
+
+                if sel_in_systems:
+                    test.print_log(
+                        "INFO",
+                        f"Managers 侧未找到 LogService id='{TARGET_LOG_ID}'，但 {sel_source} 侧存在 SEL "
+                        f"'{sel_svc.id}'（厂商选择将 SEL 放在 Systems 侧），本用例 PASS，详细字段校验交由 "
+                        f"systems_007_sel_log_view 负责"
+                    )
+                    checks.append((f"LogService '{TARGET_LOG_ID}' 存在（Managers 或 Systems 侧）", True))
+                else:
+                    test.print_log(
+                        "ERROR",
+                        f"Managers 和 Systems 侧均未找到 LogService id='{TARGET_LOG_ID}'，"
+                        f"Managers 已有：{[getattr(s,'id','') for s in svcs]}"
+                    )
+                    checks.append((f"LogService '{TARGET_LOG_ID}' 存在（Managers 或 Systems 侧）", False))
             else:
                 # service_enabled
                 enabled = getattr(target, 'service_enabled', None)
