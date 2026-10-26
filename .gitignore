@@ -12,3 +12,6 @@ venv/
 .codewiz/
 .idea/
 .plans/
+
+# 个人协作约定（不入库）
+rules.md
