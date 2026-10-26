@@ -10,6 +10,103 @@
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-26
+
+真机验证反馈批量修复 + 上游 PR 可用点吸收（issue/9）。
+基于多厂商真机验证（通算/存储/GPU 机型）反馈的 9 项脚本缺陷修复，
+同时吸收上游多个未合入 PR 中经真机验证的有效改动。
+共 58 个文件（+2241/-766），新增 3 个公共模块。
+
+### Fixed — 真机验证反馈修复（9 项）
+
+- `managers_003_ethernet_interfaces_check`：网口校验区分 Detect/Sharelink 口
+  （`Oem.Public.NCSIModeSelect` 存在即为 Sharelink 口），Sharelink 口仅做 MAC
+  格式校验，不再因统一要求 `InterfaceEnabled==True` 误判 FAIL。
+- `managers_006b_port_enable_disable` / `managers_002_network_protocol_check`：
+  移除 HTTP 检查项（业务侧明确不使用），仅保留 HTTPS。
+- `managers_006_port_status_check`：KVM/IP 端口无 DMTF/IANA 标准，
+  `==7578` 精确匹配改为「存在且合法（1-65535）」；HTTPS/SSH/IPMI 保留标准端口精确匹配。
+- `systems_005_power_control_test` / `ipmi_001_power_status`：电源操作三级阈值
+  持续轮询判定（≤120s PASS / 120~900s PASS+WARNING / >900s FAIL），
+  仅真 FAIL 才触发 ForceOff 复位，避免残留状态污染下一步；
+  ipmi_001 各操作独立阈值。
+- `ipmi_010_user_delete`：删除判定改用 `priv=NO ACCESS`（IPMI Msg 列与 disable
+  是协议语义上两个独立开关，原判定依据选错）；新增 `pre_safety_check` 前置步骤，
+  目标槽位已有非预期用户名时中止测试，避免误删业务用户。
+- `ipmi_013_user_session`：ipmitool 非零返回码为已知共性问题（各方认可），
+  去掉 `rc != 0` 判定，仅以输出为空判失败。
+- 用户名/密码规则全量整改（account + ipmi）：用户名 4~16 位全英文字母、
+  密码 8~12 位四要素（大小写+数字+特殊字符，硬规定）；
+  修正 conf 与脚本中所有违规用户名（含数字/下划线/长度不足）与超长密码。
+
+### Changed — 测试用例重构
+
+- `account_007_username_rule_test`：重写——正向 3×3 等价类×边界值矩阵（7 例）
+  + user_name 原样保留校验（防截断/大小写规范化）+ 反向用例
+  （长度越界→WARNING 不 FAIL，OEM 通用版本不强制定制；字符集违规→FAIL）
+  + 逐用例「创建→验证→立即删除」防账号数上限误判。
+- `account_003b/003c_password_modify_test`：正向 6 例（长度点×要素组合）
+  + 旧密码失效双向校验（防假成功）；反向缺要素等价类 2→5 例
+  + 长度越界宽松组 + 真实登录验证（防静默忽略假拦截）。
+- `ipmi_012_user_disable`：废弃——唯一判定依据（IPMI Msg==false）不成立，
+  业务认可现状；从 runner suite 移除，脚本保留废弃标注。
+
+### Added — 机型差异适配与公共模块
+
+- `bmc_runner`：新增 `--skip-no-gpu` / `--skip-no-storage` 机型差异跳过参数，
+  跳过用例计入报告（`result='SKIPPED'`），三种报告格式同步展示；
+  打通 exit_code=3 → SKIPPED 映射。
+- 新增 `func/sel_log_helper.py`：SEL LogService 跨 Systems/Managers 统一定位
+  （严格 `\bSEL\b` 独立词匹配 + 排除并列 EventLog 服务 + LogId 显式配置），
+  6 个 SEL 脚本委托公共助手消除逻辑漂移；managers_004a 保留 OR 判定语义。
+- 新增 `func/redfish_event_compat.py`：Event 测试公共辅助
+  （订阅 EventTypes 交集决策 / SubmitTestEvent legacy-modern 模式探测 /
+  Base Registry MessageId 解析）。
+- `common_function`：新增跨平台工具 `is_windows()` / `ping_cmd()` / `ping_once()` /
+  `ipmitool_bin()`（Windows 与 Linux 的 ping 参数、ipmitool 可执行名差异统一收敛）。
+- `systems_005_power_control_test`：新增 ResetType UNSUPPORTED 第三态
+  （AllowableValues 预检 + POST 400 收紧判定，机型差异不影响整体结果）；
+  GracefulShutdown 超时 FAIL 后追加 OS 可达性诊断（仅诊断不改判定）。
+- `systems_007_sel_log_view`：新增 `EmptyLogPolicy`（FAIL/SKIP）配置，
+  条目为空默认 FAIL（防误选空服务假 PASS）。
+- `update_002/003`：新增 `--vendor` 显式指定 / VendorDetector 自动探测
+  （失败终止）；conf 厂商分段结构（`vendors.{厂商}` + `default` 回退）；
+  BIOS 下电升级前置开关（`PowerOffBeforeUpgrade`）；SDK 连接重试参数全覆盖。
+
+### Changed — 上游 PR 可用点吸收（均未合入 upstream/main，手动移植避免冲突）
+
+- `web_012_one_click_log` / `systems_011_log_download_test`：一键日志改用 SDK
+  `collect_and_download_diagnostic_data()` 一站式采集+下载+文件非空校验，
+  消除「触发成功即 PASS」误判；systems_011 补传 `output_path`（证据留存）、
+  `DiagnosticDataType` 改 None（SDK 厂商自适应）。
+- `systems_010a_sel_log_clear_positive`：Managers 侧清除改用 SDK `clear_manager_log()`。
+- `event_004_get_subscription`：空订阅误 FAIL → 自动创建临时订阅
+  （唯一 Context+uuid 归属）→ 查询 → 精确清理。
+- `event_003/006_create/delete_subscription`：订阅 EventTypes 硬编码
+  → 与 `EventTypesForSubscription` 求交集，空则 None（厂商默认）。
+- `event_009_submit_test_event`：双路径提交（ActionInfo 探测 modern=MessageId
+  自动从 Base Registry 解析 / legacy=EventType 循环）+ 响应 Message 结构校验
+  （字段缺失 WARNING 不 FAIL）；非标准私有参数不做兼容。
+- `update_002/003`：`simple_update()` 增加 vendor 路由与厂商私有参数透传
+  （Targets/镜像源凭据/ImageType/PreserveConf 经 kwargs 交 SDK 策略消费，
+  脚本层保持厂商无关）。
+
+### Changed — 配套 conf 更新
+
+- `bmc_runner_suites.json`：managers 补全 17 个脚本（11→28，与目录对齐）；
+  ipmi 移除 ipmi_012；systems_005 超时 5400→8000s、ipmi_001 新增 1000s。
+- systems_005/007、ipmi_001、event、update、web_012、account 各 conf
+  同步新增配置项（均带注释说明）。
+
+### 验证
+
+- 全部改动文件 `py_compile` + JSON 校验通过；
+- 关键逻辑 mock 自测：sel_log_helper 12 例、redfish_event_compat 14 例、
+  systems_005 UNSUPPORTED 判定 8 例、update 参数优先级 6 例、
+  用户名/密码规则静态校验全量——全部通过；
+- 三项规范复查通过：无新增硬编码 URL、无绕过 SDK 的调用、无厂商名暴露
+  （延续去厂商化惯例）。
+
 ## [1.0.0] — 2026-09-03
 
 首个纳入 Git Tag 版本管控的基线版本。
