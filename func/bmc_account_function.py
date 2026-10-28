@@ -15,6 +15,55 @@ from func.common_function import CommonFunction
 from redfish_sdk import RedfishClient, RedfishException
 from redfish_sdk.models import Account
 
+# ── 角色名归一化（issue/19）───────────────────────────────────────────────────
+#
+# DMTF DSP0266 标准 RoleId 枚举：Administrator / Operator / ReadOnlyUser（及
+# 常见别名 ReadOnly）/ None。"User" 不是标准 RoleId（IPMI 传统 USER 权限级在
+# 部分厂商 Redfish 映射时遗留的非标准名），严格按标准实现的 BMC 会拒绝创建。
+#
+# resolve_role_id() 按优先级归一化：标准名优先，宽松实现回落，保证脚本在
+# 严格标准与宽松实现的 BMC 上都能运行。
+
+# 只读角色的候选名（按标准优先级排序）
+READONLY_ROLE_CANDIDATES = ["ReadOnly", "ReadOnlyUser", "User"]
+
+
+def resolve_role_id(client: RedfishClient, preferred: str = "ReadOnly") -> str:
+    """探测 BMC 实际支持的 RoleId，归一化返回。
+
+    探测方式：get_roles() 读取 BMC 已定义的角色列表（预定义角色必然存在），
+    按以下优先级匹配：
+      1. preferred（默认 ReadOnly，标准名）
+      2. READONLY_ROLE_CANDIDATES 中的其他只读别名（ReadOnlyUser / User）
+      3. 兜底返回 preferred（BMC 角色列表不可读时，交由创建接口实际裁决）
+
+    Returns:
+        BMC 实际支持的 RoleId 字符串。
+    """
+    try:
+        roles = client.get_roles()
+        supported = {r.id for r in roles if r.id}
+    except Exception as e:
+        CommonFunction.print_log("WARNING",
+            f"resolve_role_id: 读取角色列表失败（{str(e)[:80]}），"
+            f"兜底使用 {preferred!r}，由创建接口实际裁决")
+        return preferred
+
+    if preferred in supported:
+        return preferred
+    for candidate in READONLY_ROLE_CANDIDATES:
+        if candidate in supported:
+            if candidate != preferred:
+                CommonFunction.print_log("WARNING",
+                    f"resolve_role_id: BMC 未定义标准角色 {preferred!r}，"
+                    f"回落到该 BMC 支持的等价角色 {candidate!r}")
+            return candidate
+    CommonFunction.print_log("WARNING",
+        f"resolve_role_id: BMC 角色列表 {sorted(supported)} 中无只读角色"
+        f"（{READONLY_ROLE_CANDIDATES}），兜底使用 {preferred!r}")
+    return preferred
+
+
 def update_account_safe(client: RedfishClient, username: str, account) -> bool:
     """通过 username 安全更新账号（自动解析为数字 ID 再 PATCH）。
 

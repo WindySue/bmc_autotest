@@ -27,15 +27,17 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
-from func.bmc_account_function import delete_account_safe, update_account_safe
+from func.bmc_account_function import delete_account_safe, update_account_safe, resolve_role_id
 
 from redfish_sdk import RedfishClient, RedfishException
 from redfish_sdk.models import Account
 
 # 角色修改边界值用例：(from_role, to_role, 说明)
+# issue/19：Redfish 标准无 "User" 角色（只读对应 ReadOnly/ReadOnlyUser），
+# to_role 中的只读角色在运行时经 resolve_role_id() 归一化为 BMC 实际支持的名称
 ROLE_TRANSITIONS = [
-    ("Operator", "User",          "高权限 → 低权限"),
-    ("User",     "Operator",      "低权限 → 高权限"),
+    ("Operator", "ReadOnly",     "高权限 → 低权限"),
+    ("ReadOnly", "Operator",     "低权限 → 高权限"),
     ("Operator", "Administrator", "非超管 → 最高权限"),
 ]
 
@@ -99,8 +101,14 @@ class AccountRoleModifyTest(BmcTestBase):
             self.test_username = self.TEST_ACCOUNT_USER
 
             # Step 2：逐一遍历角色边界值
+            # issue/19：只读角色名经 resolve_role_id() 归一化（ReadOnly 优先，
+            # 回落 ReadOnlyUser/User），适配严格标准与宽松实现的 BMC
             current_role = "Operator"
             for idx, (from_role, to_role, desc) in enumerate(ROLE_TRANSITIONS, start=2):
+                # 归一化：BMC 不支持的角色名替换为实际支持的等价角色
+                from_role = resolve_role_id(self.client, from_role) if from_role != "Administrator" else from_role
+                to_role   = resolve_role_id(self.client, to_role)   if to_role   != "Administrator" else to_role
+
                 # 确保当前 role 与 from_role 一致（首次已是 Operator，后续接续）
                 if current_role != from_role:
                     CommonFunction.print_log("INFO",

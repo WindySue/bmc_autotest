@@ -1,9 +1,10 @@
 # redfish_python_sdk 接口文档
 
-> **版本**：1.1.1
+> **版本**：1.3.0
 > **作者**：XiaoHongShu Base Infrastructure
 > **安装路径**：`.venv/lib/python3.10/site-packages/redfish_sdk/`
-> **本次更新**：v1.1.0 → v1.1.1（2026-06-26）。所有 v1.1.1 新增/变更项均以 `🆕 v1.1.1` 标记，完整清单见文末 [§8 版本变更记录（v1.1.1）](#8-版本变更记录v111)。
+> **本次更新**：v1.1.1 → v1.3.0（2026-10-12 发布）。所有 v1.3.0 新增/变更项均以 `🆕 v1.3.0` 标记，完整清单见文末 [§9 版本变更记录（v1.3.0）](#9-版本变更记录v130)。
+> **接口总量**：RedfishClient 公开方法 **130 个**（v1.1.1 为 77 个）。
 
 ---
 
@@ -17,6 +18,7 @@
 6. [接口速查表](#6-接口速查表)
 7. [版本变更记录（v1.1.0）](#7-版本变更记录v110)
 8. [版本变更记录（v1.1.1）](#8-版本变更记录v111)
+9. [版本变更记录（v1.3.0）](#9-版本变更记录v130)
 
 ---
 
@@ -149,14 +151,45 @@ RedfishClient(
 
 ### 2.5 Managers（BMC 管理器）
 
+#### 基础查询
+
 | 方法签名 | 返回类型 | 说明 |
 |----------|----------|------|
 | `get_manager(manager_id="1")` | `Manager` | 获取 BMC 管理器信息 |
 | `get_manager_log_services(manager_id="1")` | `List[Log]` | 获取 BMC 日志服务列表 |
+| `get_manager_log_service(log_id, manager_id="1")` 🆕 v1.3.0 | `Log` | 获取**单个** Manager LogService（按 Id/URI 选择，单成员自动选中） |
 | `get_manager_log_entries(log_id, manager_id="1")` | `List[LogEntry]` | 获取 BMC 日志条目 |
 | `get_network_protocol(manager_id="1")` | `NetworkProtocol` | 获取网络协议配置 |
 | `get_manager_ethernet_interfaces(manager_id="1")` | `List[EthernetInterface]` | 获取 BMC 以太网接口列表 |
 | `get_host_interfaces(manager_id="1")` | `List[HostInterface]` | 获取 Host Interface 列表 |
+
+#### Manager 服务类接口（🆕 v1.3.0，对应原 OEM 扩展路径的 SDK 化）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `get_ntp_service(manager_id="1")` | `NtpService` | 获取 NTP 时间同步服务配置 |
+| `get_syslog_service(manager_id="1")` | `SyslogService` | 获取 Syslog 日志外发服务配置（含 Server/Port 列表） |
+| `get_snmp_service(manager_id="1")` | `SnmpService` | 获取 SNMP 服务配置（含 TrapServer 列表） |
+| `get_lldp_service(manager_id="1")` | `LldpService` | 获取 LLDP 服务配置（LldpEnabled） |
+| `get_dns_service(manager_id="1")` | `DnsService` | 获取 DNS 服务配置 |
+| `get_kvm_service(manager_id="1")` | `KvmService` | 获取 KVM 服务配置（SessionTimeout 等） |
+| `get_vnc_service(manager_id="1")` | `VncService` | 获取 VNC/RFB 服务配置 |
+| `get_security_service(manager_id="1")` | `SecurityService` | 获取安全服务（含 SecurityPolicy 链接） |
+| `get_firewall_rules(manager_id="1")` | `FirewallRules` | 获取防火墙规则集合（ActiveStrategy/Rules） |
+| `get_https_cert(manager_id="1")` | `HttpsCert` | 获取 HTTPS 证书信息（Issuer/Subject/有效期） |
+| `get_https_certificates(manager_id="1")` | `List[HttpsCert]` | 获取标准 HTTPS 证书集合 |
+| `get_sol_source(manager_id="1")` | `SolSourceControlInfo` | 获取 SOL 串口控制信息 |
+| `get_serial_interfaces(manager_id="1")` | `List[SerialInterface]` | 获取 Manager 串口列表（IPMI SOL 可选） |
+| `get_serial_interface(identifier, manager_id="1")` | `SerialInterface` | 获取单个串口（按 Id/URI，单成员自动选中） |
+| `update_serial_interface(identifier, manager_id="1", ...)` | `SerialInterface` | PATCH 串口设置（enabled/bit_rate/data_bits 等，带 ETag） |
+| `get_virtual_media(manager_id="1")` | `List[VirtualMedia]` | 获取虚拟媒体资源列表 |
+
+#### Manager 操作（🆕 v1.3.0）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `reset_manager(reset_type, manager_id="1")` | `RedfishResponse` | BMC 重置（Manager.Reset，target 与 AllowableValues 由 BMC 声明自动校验） |
+| `clear_manager_log(log_id, manager_id="1")` | `None` | 清空 Manager 日志（仅当广告 `LogService.ClearLog` 时可用） |
 
 ---
 
@@ -273,7 +306,78 @@ oem_info = data.get("Oem", {})
 
 ---
 
-### 2.13 辅助工具方法
+### 2.13 Systems 扩展（🆕 v1.3.0）
+
+#### SecureBoot（安全启动）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `get_secure_boot(system_id=None)` | `Optional[SecureBoot]` | 获取 SecureBoot 信息（`SecureBootEnable` 状态）；System 未广告该链接时为 None |
+| `update_secure_boot(enabled, system_id=None)` | `SecureBoot` | PATCH `SecureBootEnable`（带 ETag 并发控制） |
+| `reset_secure_boot_keys(reset_keys_type, system_id=None)` | `RedfishResponse` | 调用 `ResetKeys` Action（`ResetAll` / `DeleteAll` / `DeletePK` 等，取值经 AllowableValues 校验） |
+
+#### NetworkInterfaces / NetworkPorts（带内网卡）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `get_network_interfaces(system_id=None)` | `List[NetworkInterface]` | 枚举 System 广告的 NetworkInterfaces |
+| `get_network_ports(network_interface_id, system_id=None)` | `List[NetworkPort]` | 读取指定接口（或全部接口）的 NetworkPorts |
+| `get_network_port(identifier, network_interface_id, system_id=None)` | `NetworkPort` | 按 Id/URI 获取单个 NetworkPort |
+
+#### Memory 扩展（MemoryDomain / MemoryChunks / MemoryMetrics）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `get_memory_domains(system_id=None)` | `List[MemoryDomain]` | 枚举 System 广告的 MemoryDomains |
+| `get_memory_domain(identifier, system_id=None)` | `MemoryDomain` | 按 Id/URI 获取单个 MemoryDomain |
+| `get_memory_chunks(memory_domain_id, system_id=None)` | `List[MemoryChunks]` | 读取单个域（或所有广告域）的 MemoryChunks |
+| `get_memory_chunk(identifier, memory_domain_id, system_id=None)` | `MemoryChunks` | 按 Id/URI 获取单个 MemoryChunks |
+| `get_memory_metrics(memory_id, system_id=None)` | `Optional[MemoryMetrics]` | 获取指定 DIMM 的 Metrics（仅唯一 DIMM 时自动选择） |
+
+#### 一键日志分步接口（🆕 v1.3.0，与 `collect_and_download_diagnostic_data()` 一站式封装互补）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `collect_diagnostic_data(diagnostic_data_type=None, log_id=None, manager_id=None, oem_params=None)` | `Task` | 触发 `#LogService.CollectDiagnosticData`（`diagnostic_data_type=None` 时使用厂商默认：OEM 可用则 OEM，否则 Manager） |
+| `download_diagnostic_data(task_or_entry, output_path)` | `str` | 从采集 Task 或 LogEntry 下载产物到指定路径 |
+| `collect_and_download_diagnostic_data(output_path, ...)` | `str` | 一站式：触发采集 → 轮询 Task → 下载（`reuse_existing=True` 可复用既有采集结果） |
+
+### 2.14 Telemetry（遥测服务，🆕 v1.3.0）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `get_telemetry_service()` | `Optional[TelemetryService]` | 获取 TelemetryService（Service Root 未广告时为 None） |
+| `get_metric_definitions()` | `List[MetricDefinition]` | 枚举指标定义 |
+| `get_metric_definition(identifier)` | `MetricDefinition` | 按 Id/URI 获取单个指标定义 |
+| `get_metric_reports()` | `List[MetricReport]` | 枚举指标报告（含类型化 MetricValue） |
+| `get_metric_report(identifier)` | `MetricReport` | 按 Id/URI 获取单个指标报告 |
+| `get_metric_report_definitions()` | `List[MetricReportDefinition]` | 枚举指标报告定义 |
+| `get_metric_report_definition(identifier)` | `MetricReportDefinition` | 按 Id/URI 获取单个报告定义 |
+| `get_telemetry_triggers()` | `List[Triggers]` | 枚举遥测触发器 |
+| `get_telemetry_trigger(identifier)` | `Triggers` | 按 Id/URI 获取单个触发器 |
+| `get_metric_report_log()` | `Optional[Log]` | 获取遥测 LogService（MetricReportLog） |
+| `get_metric_report_log_entries()` | `List[LogEntry]` | 读取遥测日志条目 |
+
+### 2.15 Composition（组合服务，🆕 v1.3.0）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `get_composition_service()` | `Optional[CompositionService]` | 获取 CompositionService（Root 未广告时为 None） |
+| `get_resource_blocks()` | `List[ResourceBlock]` | 枚举资源块 |
+| `get_resource_block(identifier)` | `ResourceBlock` | 按 Id/URI 获取单个资源块 |
+| `get_resource_zones()` | `List[ResourceZone]` | 枚举资源区域 |
+| `get_resource_zone(identifier)` | `ResourceZone` | 按 Id/URI 获取单个资源区域 |
+
+### 2.16 固件升级增强（🆕 v1.3.0）
+
+| 方法签名 | 返回类型 | 说明 |
+|----------|----------|------|
+| `bmc_firmware_update(flash_type, upload_selector)` | `RedfishResponse` | 触发广告的 AMI BMC 固件 Action（完成后可能重启 BMC） |
+| `upload_firmware_file(file_path, field_name=None, update_parameters=None, oem_parameters=None)` | `RedfishResponse` | 经广告的 HttpPushUri 上传固件文件（文件名因厂商而异） |
+| `upload_firmware_image(file_path)` | `RedfishResponse` | 调用广告的 `UploadFirmwareImage` Action 上传 AMI 镜像 |
+| `upload_sign_key(file_path)` | `RedfishResponse` | 调用广告的 `UploadSignKey` Action 上传签名密钥 |
+
+### 2.17 辅助工具方法
 
 | 方法签名 | 返回类型 | 说明 |
 |----------|----------|------|
@@ -584,7 +688,41 @@ url = client.get_odata_id(RedfishResource.PROCESSORS)
 | `get_boot_options()` / `set_boot_option_enabled()` 🆕v1.1.0 | 现代 BootOptions 引导项测试 |
 | `submit_test_event()` 🆕v1.1.0 | 事件测试上报（SubmitTestEvent） |
 | `get_inlet_history_temperature()` 🆕v1.1.0 | 进风口历史温度曲线测试 |
+| `reset_manager()` / `clear_manager_log()` 🆕v1.3.0 | BMC 重启 / Manager 日志清除 |
+| `collect_and_download_diagnostic_data()` 🆕v1.3.0 | 一键日志采集下载（一站式） |
+| `collect_diagnostic_data()` / `download_diagnostic_data()` 🆕v1.3.0 | 一键日志分步控制 |
+| `update_secure_boot()` / `reset_secure_boot_keys()` 🆕v1.3.0 | 安全启动开关 / 密钥重置 |
+| `update_serial_interface()` 🆕v1.3.0 | 串口参数设置（SOL 前置） |
+| `bmc_firmware_update()` / `upload_firmware_file()` / `upload_firmware_image()` / `upload_sign_key()` 🆕v1.3.0 | 固件上传与 AMI 专有升级动作 |
 | `patch()` / `post()` / `delete()` | 直接操作任意 Redfish 资源 |
+
+### Manager 服务类查询接口（🆕v1.3.0，对应原 OEM 扩展路径 SDK 化）
+
+| 接口 | 对应测试场景 |
+|------|-------------|
+| `get_ntp_service()` | NTP 时间同步配置检查 |
+| `get_syslog_service()` | Syslog 日志外发配置检查 |
+| `get_snmp_service()` | SNMP 服务 / Trap 配置检查 |
+| `get_lldp_service()` | LLDP 启用状态检查 |
+| `get_dns_service()` | DNS 服务配置检查 |
+| `get_kvm_service()` | KVM 服务配置（SessionTimeout）检查 |
+| `get_vnc_service()` | VNC 服务配置检查 |
+| `get_security_service()` / `get_firewall_rules()` | 安全服务 / 防火墙规则检查 |
+| `get_https_cert()` / `get_https_certificates()` | HTTPS 证书有效期巡检 |
+| `get_sol_source()` / `get_serial_interfaces()` | SOL 串口配置检查 |
+| `get_virtual_media()` | 虚拟媒体挂载状态检查 |
+| `get_secure_boot()` | 安全启动状态检查 |
+
+### Telemetry / Composition / Memory 扩展查询接口（🆕v1.3.0）
+
+| 接口 | 对应测试场景 |
+|------|-------------|
+| `get_telemetry_service()` / `get_metric_definitions()` / `get_metric_reports()` | 遥测指标定义与报告检查 |
+| `get_metric_report_definitions()` / `get_telemetry_triggers()` | 遥测报告定义与触发器检查 |
+| `get_metric_report_log()` / `get_metric_report_log_entries()` | 遥测日志检查 |
+| `get_memory_domains()` / `get_memory_chunks()` / `get_memory_metrics()` | 内存域 / 内存块 / DIMM 健康指标深度检查 |
+| `get_network_interfaces()` / `get_network_ports()` | 带内网卡与端口状态检查 |
+| `get_composition_service()` / `get_resource_blocks()` / `get_resource_zones()` | 组合服务资源池检查（机柜级场景） |
 
 ---
 
@@ -682,3 +820,112 @@ Systems 和 Managers 的日志相关方法内部逻辑重构：
 | `event_006_delete_subscription.py` | 同上 | 同上 |
 | `event_004_get_subscription.py` | SDK 无 get_subscription() | 新增 `get_subscription(id_or_uri)` |
 | `managers_004a/b/c_*_log_check.py` | 硬编码 entries_url + [SDK-GAP] 标记 | 日志路径动态发现 |
+
+---
+
+## 9. 版本变更记录（v1.3.0）
+
+> 发布日期：2026-10-12。v1.1.1 的所有方法签名与返回类型保持不变，本次为**大规模增量**升级：
+> RedfishClient 公开方法由 77 个增至 **130 个**（新增 53 个），新增模型约 40 个。
+> 核心主题：**Manager 服务类接口 SDK 化**（消除原 OEM 扩展路径的 get_raw 占位）、
+> **Telemetry / Composition 全套**、**固件升级增强**、**一键日志**、**SecureBoot**。
+
+### 9.1 Manager 服务类接口（15 个，🆕 v1.3.0）
+
+对应原 README「SDK 已知局限」中 17 个 `_` 前缀暂缓脚本的 OEM 扩展路径，**全部 SDK 化**：
+
+| API | 说明 | 对应暂缓脚本 |
+|-----|------|-------------|
+| `get_ntp_service(manager_id="1")` | NTP 服务配置 | managers_008 |
+| `get_syslog_service(manager_id="1")` | Syslog 服务配置（含 Server/Port 列表） | managers_010 / 025 |
+| `get_snmp_service(manager_id="1")` | SNMP 服务配置（含 TrapServer 列表） | managers_011 / 024 |
+| `get_lldp_service(manager_id="1")` | LLDP 服务配置 | managers_013 |
+| `get_dns_service(manager_id="1")` | DNS 服务配置 | managers_016 |
+| `get_kvm_service(manager_id="1")` | KVM 服务配置 | managers_012 |
+| `get_vnc_service(manager_id="1")` | VNC 服务配置 | managers_017 / 022 |
+| `get_security_service(manager_id="1")` | 安全服务 | managers_018（部分） |
+| `get_firewall_rules(manager_id="1")` | 防火墙规则集合 | managers_018 |
+| `get_https_cert(manager_id="1")` | HTTPS 证书信息 | managers_019 |
+| `get_https_certificates(manager_id="1")` | 标准 HTTPS 证书集合 | managers_019 |
+| `get_sol_source(manager_id="1")` | SOL 串口控制信息 | managers_021 / 023 |
+| `get_serial_interfaces(manager_id="1")` / `get_serial_interface(id)` | Manager 串口列表 / 单个 | managers_021 / 023 |
+| `update_serial_interface(id, ...)` | PATCH 串口设置（带 ETag） | managers_021 |
+| `get_virtual_media(manager_id="1")` | 虚拟媒体资源列表 | managers_020 |
+
+### 9.2 Manager 操作（2 个，🆕 v1.3.0）
+
+| API | 说明 |
+|-----|------|
+| `reset_manager(reset_type, manager_id="1")` | BMC 重置（Manager.Reset，target 与 AllowableValues 自动校验；替代 `client.post("/redfish/v1/Managers/1/Actions/Manager.Reset")` 硬编码） |
+| `clear_manager_log(log_id, manager_id="1")` | 清空 Manager 日志（仅当广告 `LogService.ClearLog`） |
+
+### 9.3 一键日志（3 个，🆕 v1.3.0）
+
+| API | 说明 |
+|-----|------|
+| `collect_diagnostic_data(diagnostic_data_type=None, ...)` | 触发 `#LogService.CollectDiagnosticData`；`diagnostic_data_type=None` 使用厂商默认（OEM 可用则 OEM，否则 Manager） |
+| `download_diagnostic_data(task_or_entry, output_path)` | 从采集 Task 或 LogEntry 下载产物 |
+| `collect_and_download_diagnostic_data(output_path, ...)` | 一站式：触发 → 轮询 → 下载；`reuse_existing` 可复用既有采集，`max_retries`/`retry_backoff` 支持失败重试 |
+
+### 9.4 SecureBoot（3 个，🆕 v1.3.0）
+
+| API | 说明 |
+|-----|------|
+| `get_secure_boot(system_id=None)` | 获取 SecureBoot 信息（System 未广告链接时为 None） |
+| `update_secure_boot(enabled, system_id=None)` | PATCH `SecureBootEnable`（带 ETag） |
+| `reset_secure_boot_keys(reset_keys_type, system_id=None)` | `ResetKeys` Action（ResetAll/DeleteAll/DeletePK，经 AllowableValues 校验） |
+
+### 9.5 固件升级增强（4 个，🆕 v1.3.0）
+
+| API | 说明 |
+|-----|------|
+| `bmc_firmware_update(flash_type, upload_selector)` | 广告的 AMI BMC 固件 Action（完成后可能重启 BMC） |
+| `upload_firmware_file(file_path, field_name=None, ...)` | 经广告 HttpPushUri 上传固件文件 |
+| `upload_firmware_image(file_path)` | 广告的 `UploadFirmwareImage` Action（AMI 镜像） |
+| `upload_sign_key(file_path)` | 广告的 `UploadSignKey` Action（签名密钥） |
+
+### 9.6 Telemetry 遥测（11 个，🆕 v1.3.0）
+
+`get_telemetry_service()`、`get_metric_definitions()`、`get_metric_definition(id)`、
+`get_metric_reports()`、`get_metric_report(id)`、`get_metric_report_definitions()`、
+`get_metric_report_definition(id)`、`get_telemetry_triggers()`、`get_telemetry_trigger(id)`、
+`get_metric_report_log()`、`get_metric_report_log_entries()`。
+
+### 9.7 Memory 扩展（6 个，🆕 v1.3.0）
+
+`get_memory_domains()`、`get_memory_domain(id)`、`get_memory_chunks(domain_id)`、
+`get_memory_chunk(id, domain_id)`、`get_memory_metrics(memory_id)`。
+
+### 9.8 NetworkInterfaces / NetworkPorts（3 个，🆕 v1.3.0）
+
+`get_network_interfaces(system_id)`、`get_network_ports(nic_id)`、`get_network_port(id, nic_id)`。
+
+### 9.9 Composition 组合服务（5 个，🆕 v1.3.0）
+
+`get_composition_service()`、`get_resource_blocks()`、`get_resource_block(id)`、
+`get_resource_zones()`、`get_resource_zone(id)`。
+
+### 9.10 新增数据模型（🆕 v1.3.0，约 40 个）
+
+- **Manager 服务类**：`NtpService`、`SyslogService`/`SyslogServer`、`SnmpService`/`TrapServer`/`SnmpTrapNotification`、`LldpService`、`DnsService`、`KvmService`、`VncService`、`SecurityService`/`SecurityServiceLinks`、`HttpsCert`/`X509CertificateInformation`/`ServerCert`、`FirewallRules`、`VirtualMedia`、`SolSourceControlInfo`、`SerialInterface`/`SerialInterfacePatch`、`CommandShell`/`GraphicalConsole`/`SerialConsole`、`ManagerResetAction`/`ManagerResetRequest`、`ProtocolConfig`、`HTTPSProtocol`/`NTPProtocol`/`SNMPProtocol`、`IPv4Address`/`IPv6Address`/`Vlan`
+- **Telemetry**：`TelemetryService`、`MetricDefinition`、`Metric`、`MetricWildcard`、`MetricSchedule`、`MetricReportDefinition`、`MetricValue`、`MetricReport`、`DiscreteTrigger`、`MetricThreshold`/`MetricThresholds`、`Triggers`
+- **Memory 扩展**：`MemoryDomain`、`InterleavableMemorySet`/`MemoryInterleaveSet`、`MemoryChunks`、`MemoryPeriod`/`MemoryAlarmTrips`/`MemoryHealthData`、`MemoryMetrics`、`NetworkInterface`/`NetworkInterfaceLinks`/`SupportedLinkCapability`、`NetworkPort`、`SecureBoot`/`SecureBootActions`/`SecureBootPatch`/`ResetKeysAction`/`ResetKeysRequest`/`OptionalSystemResource`
+- **Composition**：`CompositionService`、`CompositionStatus`、`CompositionResource`、`ResourceBlock`/`ResourceBlockLinks`、`ResourceZone`/`ResourceZoneLinks`
+- **日志采集**：`DiagnosticService`、`LogServicesCollection`、`ActionTarget`、`ZteDumpProgress`、`LenovoCollectProgress`
+- **Actions**：`ActionDescriptor`、`ActionMap`、`ActionInfoParameter`、`ActionInfo`
+- **Update**：`FirmwareUpdateResponse`
+
+### 9.11 RedfishResource 枚举增量（🆕 v1.3.0）
+
+`SECURE_BOOT`、`BOOT_OPTIONS`（v1.1.0 遗漏补记）、`VIRTUAL_MEDIA`（v1.1.0 遗漏补记）、`CERTIFICATES`。
+
+### 9.12 其他增强
+
+- `RedfishClient` 支持 **context manager**（`with RedfishClient(...) as client:`）与
+  `connect_timeout` / `read_timeout` / `retry_5xx` / `retry_on_read_timeout` / `retry_backoff`
+  连接重试参数（BMC 重启场景的连接抖动容错）。
+- `simple_update()` 新增 `vendor` 参数与厂商策略框架（`managers/update_strategies/`，
+  内置 enginetech/inspur/zte/h3c/nettrix/xfusion/lenovo 策略 + `VendorDetector` 自动探测），
+  厂商私有参数经 `**kwargs` 透传（`image_type`/`flash_item`/`preserve_config`/`username`/`password`/`bios_flash` 等）。
+- 一键日志厂商策略框架（`managers/log_collect_strategies/`）。
+- `RedfishException` 携带 `status_code` / `message` / `body` 属性（供脚本按 HTTP 状态码分类判定）。

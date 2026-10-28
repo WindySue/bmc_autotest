@@ -31,7 +31,11 @@
             "systems_010b_sel_log_clear_negative",
             "systems_011_log_download_test",
             "systems_013_bios_check",
-            "systems_014_html5kvm_test"
+            "systems_014_html5kvm_test",
+            "systems_015_secure_boot_test",
+            "systems_016_memory_metrics_test",
+            "systems_017_telemetry_test",
+            "systems_018_network_interfaces_test"
         ],
         "managers": [
             "managers_001_info_check",

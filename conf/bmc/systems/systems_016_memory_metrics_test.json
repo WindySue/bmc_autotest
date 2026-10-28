@@ -1,0 +1,11 @@
+{
+    "MemoryMetricsTest": {
+        "TestName": "内存健康深度检查（MemoryDomains/Chunks/Metrics）",
+        "TestNum": "Redfish_Systems_016",
+        "LogBasename": "systems_016_memory_metrics_test",
+        "BMC_IP": "",
+        "UserName": "",
+        "PassWord": "",
+        "Note": "MemoryDomains/MemoryMetrics 为可选组件：BMC 未广告时记 WARNING 跳过（不计 FAIL）；Metrics 中 AlarmTrips 触发 → FAIL"
+    }
+}

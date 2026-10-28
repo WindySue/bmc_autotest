@@ -8,7 +8,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -25,7 +25,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -42,7 +42,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -59,7 +59,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -76,7 +76,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -93,7 +93,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -110,7 +110,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -127,7 +127,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -144,7 +144,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -161,7 +161,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -178,7 +178,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -195,7 +195,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -212,7 +212,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   },
 
@@ -229,7 +229,7 @@
       "RoleId": "Operator",
       "Enabled": true
     },
-    "AltRoleId": "User",
+    "AltRoleId": "ReadOnly",
     "AltPassword": "NewPass@9876"
   }
 }

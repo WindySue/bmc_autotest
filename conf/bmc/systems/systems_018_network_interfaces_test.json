@@ -1,0 +1,11 @@
+{
+    "NetworkInterfacesTest": {
+        "TestName": "带内网卡测试（NetworkInterfaces/NetworkPorts）",
+        "TestNum": "Redfish_Systems_018",
+        "LogBasename": "systems_018_network_interfaces_test",
+        "BMC_IP": "",
+        "UserName": "",
+        "PassWord": "",
+        "Note": "NetworkInterfaces 为可选组件：System 未广告或为空时记 WARNING 跳过（不计 FAIL）；端口 LinkStatus=Down 不判 FAIL（网线未接属正常部署状态），仅存档"
+    }
+}
