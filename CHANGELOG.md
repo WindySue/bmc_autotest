@@ -10,6 +10,42 @@
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-10-28
+
+非标准 RoleId 'User' 修正 + SDK 1.3.0 接口覆盖扩展（issue/19，PR #20）。
+共 17 个文件（+1499/-33），新增 4 个测试脚本与 4 个 conf。
+
+### Fixed — 非标准 RoleId 'User' 修正（issue #19）
+
+- 根因：DMTF DSP0266 标准 RoleId 枚举无 "User"（只读对应 ReadOnly/ReadOnlyUser），
+  严格按标准实现的 BMC 拒绝创建 `RoleId="User"` 账号，导致 4 个 account 脚本 FAIL。
+- `func/bmc_account_function.py`：新增 `resolve_role_id()` 角色归一化探测
+  （ReadOnly → ReadOnlyUser → User 回落；角色列表不可读时 WARNING + 兜底 preferred）。
+- `account_003a`：ROLE_TRANSITIONS 的 User → ReadOnly（高↔低权限边界语义不变），
+  运行时经 `resolve_role_id()` 归一化。
+- `account_004`：STANDARD_ROLES 改标准枚举；判定分层——Administrator/Operator
+  缺失 FAIL；只读角色等价名（ReadOnly/ReadOnlyUser/User）任一存在即覆盖，
+  全部缺失 WARNING 不 FAIL（宽松实现厂商避免误报）。
+- `account_006/007`：创建账号 RoleId 改为运行时归一化探测。
+- `account_test.json`：AltRoleId "User" → "ReadOnly"（14 处）。
+
+### Added — SDK 1.3.0 接口覆盖扩展（A/B 档）
+
+- `systems_015_secure_boot_test`：SecureBoot 三接口（查询存档 / SecureBootEnable
+  切换读回 / ResetKeys Action 探测）；ResetKeys 默认 probe 不执行（破坏性操作），
+  conf 可配 execute 实际执行；未广告 SecureBoot 链接 WARNING 跳过。
+- `systems_016_memory_metrics_test`：MemoryDomains/Chunks/Metrics 逐 DIMM 读取，
+  AlarmTrips 触发 FAIL；可选组件未广告 WARNING 跳过。
+- `systems_017_telemetry_test`：Telemetry 11 接口全覆盖 + 单资源抽验（Id 回读一致）；
+  TelemetryService 未广告或集合为空 WARNING 不 FAIL。
+- `systems_018_network_interfaces_test`：带内网卡 + 端口 LinkStatus 分布存档
+  （Down 不判 FAIL，网线未接属正常部署状态）；单端口抽验回读一致。
+- `bmc_runner_suites.json`：systems 组新增 015/016/017/018 四个脚本。
+- `docs/redfish_python_sdk_api.md`：1.1.1 → 1.3.0 全量（684 → 931 行），
+  新增 §2.13~2.16（Systems 扩展/Telemetry/Composition/固件升级增强）与 §9 版本变更记录。
+- README：Systems 表补 4 行；systems_014 接入度更正为 `get_kvm_service()`
+  （SDK 1.3.0 已封装，消除最后一个 [SDK-GAP]）。
+
 ## [1.3.0] — 2026-10-26
 
 真机验证反馈批量修复 + 上游 PR 可用点吸收（issue/9）。
