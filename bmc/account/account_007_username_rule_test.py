@@ -62,7 +62,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from func.common_function import CommonFunction
 from func.bmc_test_base import BmcTestBase
-from func.bmc_account_function import delete_account_safe
+from func.bmc_account_function import delete_account_safe, resolve_role_id
 
 from redfish_sdk import RedfishClient, RedfishException
 from redfish_sdk.models import Account
@@ -152,7 +152,7 @@ class AccountUsernameRuleTest(BmcTestBase):
             self.client.add_account(Account(
                 UserName=username,
                 Password=TEST_PASS,
-                RoleId="User",
+                RoleId=self.batch_role,
                 Enabled=True
             ))
         except RedfishException as e:
@@ -194,7 +194,7 @@ class AccountUsernameRuleTest(BmcTestBase):
             self.client.add_account(Account(
                 UserName=username,
                 Password=TEST_PASS,
-                RoleId="User",
+                RoleId=self.batch_role,
                 Enabled=True
             ))
         except RedfishException as e:
@@ -230,6 +230,10 @@ class AccountUsernameRuleTest(BmcTestBase):
         rows = []  # (label, level, detail) — 逐用例记录，便于定位失败项
 
         try:
+            # issue/19：归一化批量创建使用的角色（"User" 非标准 RoleId）
+            self.batch_role = resolve_role_id(self.client, "ReadOnly")
+            CommonFunction.print_log("INFO", f"批量创建使用角色：{self.batch_role!r}")
+
             # ── 正向：有效等价类 × 边界值 ─────────────────────────────────────
             CommonFunction.print_log("INFO", "=== 正向：有效等价类 × 边界值（应创建成功且名字原样保留）===")
             for username, desc in VALID_USERNAMES:

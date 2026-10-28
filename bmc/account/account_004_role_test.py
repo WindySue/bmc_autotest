@@ -27,7 +27,13 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 
-STANDARD_ROLES = {"Administrator", "Operator", "User"}
+# DMTF DSP0266 标准 RoleId 枚举（issue/19）：
+#   Administrator / Operator / ReadOnlyUser（及常见别名 ReadOnly）/ None
+# "User" 不是标准 RoleId（IPMI 传统 USER 权限级在部分厂商映射时遗留的非标准名）
+STANDARD_ROLES = {"Administrator", "Operator", "ReadOnly", "ReadOnlyUser"}
+
+# 只读角色的等价名集合：任一存在即视为"只读角色"覆盖（兼容宽松实现的厂商）
+READONLY_EQUIV = {"ReadOnly", "ReadOnlyUser", "User"}
 
 class AccountRoleTest(BmcTestBase):
     """Account 角色定义测试
@@ -75,14 +81,27 @@ class AccountRoleTest(BmcTestBase):
                         CommonFunction.print_log("ERROR", f"  角色 {r.id} 的 assigned_privileges 为空")
                         result = "FAIL"
 
-                # 验证标准角色
-                CommonFunction.print_log("INFO", f"Step 2：验证标准角色 {STANDARD_ROLES}")
-                missing_roles = STANDARD_ROLES - role_ids
+                # 验证标准角色（issue/19）
+                # - Administrator/Operator：必须存在，缺失 FAIL
+                # - 只读角色：ReadOnly/ReadOnlyUser/User 为等价名（部分厂商使用
+                #   非标准名 "User"），任一存在即视为覆盖；全部缺失记 WARNING
+                #   不 FAIL（宽松实现的厂商可能用其他命名，避免误报）
+                CommonFunction.print_log("INFO", f"Step 2：验证标准角色")
+                missing_roles = {"Administrator", "Operator"} - role_ids
                 if missing_roles:
                     CommonFunction.print_log("ERROR", f"缺少标准角色：{missing_roles}")
                     result = "FAIL"
                 else:
-                    CommonFunction.print_log("INFO", f"  ✓ 标准角色全部存在")
+                    CommonFunction.print_log("INFO", f"  ✓ Administrator/Operator 存在")
+
+                readonly_found = READONLY_EQUIV & role_ids
+                if readonly_found:
+                    CommonFunction.print_log("INFO",
+                        f"  ✓ 只读角色存在：{sorted(readonly_found)}")
+                else:
+                    CommonFunction.print_log("WARNING",
+                        f"  未发现只读角色（{sorted(READONLY_EQUIV)} 均不存在），"
+                        f"宽松实现的厂商可能使用其他命名，记 WARNING 不 FAIL")
 
         except RedfishException as e:
             CommonFunction.print_log("ERROR", f"Redfish 接口异常：{e}")

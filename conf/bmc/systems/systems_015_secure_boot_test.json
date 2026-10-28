@@ -1,0 +1,16 @@
+{
+    "SecureBootTest": {
+        "TestName": "SecureBoot安全启动测试",
+        "TestNum": "Redfish_Systems_015",
+        "LogBasename": "systems_015_secure_boot_test",
+        "BMC_IP": "",
+        "UserName": "",
+        "PassWord": "",
+        "_comment_TargetState": "切换测试的目标状态：true=切到开启 / false=切到关闭 / 不配置=自动取反（当前开则切关，反之亦然）",
+        "TargetState": null,
+        "_comment_ResetKeysMode": "ResetKeys Action 验证模式：probe=只探测可发现性不执行（默认，重置密钥属破坏性操作）/ execute=实际执行（已部署密钥对将失效，慎用）",
+        "ResetKeysMode": "probe",
+        "_comment_ResetKeysType": "ResetKeysMode=execute 时使用的重置类型（须经 BMC AllowableValues 校验）：ResetAll / DeleteAll / DeletePK",
+        "ResetKeysType": "ResetAll"
+    }
+}

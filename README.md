@@ -287,7 +287,11 @@ Systems资源包含一些硬件的基本信息（主要是CPU、内存和存储�
 |     systems_011_log_download_test     |       一键日志下载测试       | Redfish_Systems_011  | collect_and_download_diagnostic_data()（含文件非空校验） |
 |                  待定                   |      JBOD硬盘设置测试      | Redfish_Systems_012  |                         无                          |
 |     systems_013_bios_check            |       BIOS基本信息检查      | Redfish_Systems_013  |             get_system()（bios_version）              |
-|   systems_014_html5kvm_test           |   HTML5KVM创建最大化测试（MaxSessions≥2） | Redfish_Systems_014  | get_raw()⚠️ [SDK-GAP]（OEM KVM接口）                  |
+|   systems_014_html5kvm_test           |   HTML5KVM创建最大化测试（MaxSessions≥2） | Redfish_Systems_014  | get_kvm_service()（SDK 1.3.0）                  |
+|   systems_015_secure_boot_test        |   SecureBoot安全启动测试（切换/恢复/ResetKeys探测） | Redfish_Systems_015 | get_secure_boot(), update_secure_boot(), reset_secure_boot_keys() |
+|  systems_016_memory_metrics_test      |   内存健康深度检查（Domains/Chunks/Metrics） | Redfish_Systems_016 | get_memory_domains(), get_memory_chunks(), get_memory_metrics() |
+|    systems_017_telemetry_test         |   Telemetry遥测服务测试（指标/报告/触发器） | Redfish_Systems_017 | get_telemetry_service(), get_metric_definitions(), get_metric_reports() 等 |
+|  systems_018_network_interfaces_test  |   带内网卡测试（NetworkInterfaces/Ports） | Redfish_Systems_018  | get_network_interfaces(), get_network_ports(), get_network_port() |
 
 
 ## **EventService资源**

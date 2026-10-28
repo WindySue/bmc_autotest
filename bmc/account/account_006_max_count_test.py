@@ -31,7 +31,7 @@ from func.bmc_test_base import BmcTestBase
 
 from redfish_sdk import RedfishClient, RedfishException
 from redfish_sdk.models import Account
-from func.bmc_account_function import delete_account_safe
+from func.bmc_account_function import delete_account_safe, resolve_role_id
 
 MAX_ATTEMPT = 50       # 防止无限循环，最多尝试创建 50 个
 MIN_ACCOUNT_LIMIT = 8  # 需求 RDSV_BMC_079：BMC 至少支持 8 个本地用户
@@ -95,11 +95,15 @@ class AccountMaxCountTest(BmcTestBase):
         max_count = 0
 
         try:
-            # Step 1：获取基准账号数
+            # Step 1：获取基准账号数 + 归一化批量创建使用的角色
+            # issue/19："User" 非标准 RoleId，经 resolve_role_id() 归一化
+            # （ReadOnly 优先，回落 ReadOnlyUser/User）
             CommonFunction.print_log("INFO", "Step 1：获取当前账号数量（基准）")
             before = self.client.get_accounts()
             base_count = len(before)
             CommonFunction.print_log("INFO", f"当前账号数：{base_count}")
+            batch_role = resolve_role_id(self.client, "ReadOnly")
+            CommonFunction.print_log("INFO", f"批量创建使用角色：{batch_role!r}")
 
             # Step 2：循环创建直到失败
             CommonFunction.print_log("INFO", f"Step 2：循环创建账号（最多尝试 {MAX_ATTEMPT} 个）")
@@ -109,7 +113,7 @@ class AccountMaxCountTest(BmcTestBase):
                     self.client.add_account(Account(
                         UserName=username,
                         Password=self.TEST_ACCOUNT_PASS,
-                        RoleId="User",
+                        RoleId=batch_role,
                         Enabled=True
                     ))
                     self.created_users.append(username)

@@ -1,0 +1,11 @@
+{
+    "TelemetryTest": {
+        "TestName": "Telemetry遥测服务测试",
+        "TestNum": "Redfish_Systems_017",
+        "LogBasename": "systems_017_telemetry_test",
+        "BMC_IP": "",
+        "UserName": "",
+        "PassWord": "",
+        "Note": "TelemetryService 为可选组件：Service Root 未广告时记 WARNING 跳过（不计 FAIL）；各集合为空（未配置遥测指标）同样 WARNING 不 FAIL；仅抽验回读 Id 不一致才 FAIL"
+    }
+}
